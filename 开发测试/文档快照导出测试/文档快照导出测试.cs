@@ -299,6 +299,69 @@ public sealed class 文档快照导出测试
             error.Description.Contains("tblHeader", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void 表格服务_表头行已有后置变更节点时_TableHeader必须插在其前面()
+    {
+        using var stream = new MemoryStream();
+        using var word = CreateDirtyTableDocument(stream, withRowJustification: false);
+        var firstRow = word.MainDocumentPart!.Document!.Body!.Elements<Table>()
+            .Single().Elements<TableRow>().First();
+        var trPr = firstRow.GetFirstChild<TableRowProperties>() ?? firstRow.PrependChild(new TableRowProperties());
+        trPr.AppendChild(new TableRowPropertiesChange { Id = "1" });
+
+        new TableService().Apply(word, hasCover: false);
+
+        var childNames = trPr.ChildElements.Select(x => x.LocalName).ToList();
+        Assert.True(childNames.IndexOf("tblHeader") < childNames.IndexOf("trPrChange"),
+            $"tblHeader 顺序错误：{string.Join(",", childNames)}");
+    }
+
+    [Fact]
+    public void 表格服务_隐藏行属性必须保留在TableHeader之前且通过结构校验()
+    {
+        using var stream = new MemoryStream();
+        using var word = CreateDirtyTableDocument(stream, withRowJustification: false);
+        var firstRow = word.MainDocumentPart!.Document!.Body!.Elements<Table>()
+            .Single().Elements<TableRow>().First();
+        var trPr = firstRow.GetFirstChild<TableRowProperties>() ?? firstRow.PrependChild(new TableRowProperties());
+        trPr.PrependChild(new Hidden());
+
+        new TableService().Apply(word, hasCover: false);
+
+        var childNames = trPr.ChildElements.Select(x => x.LocalName).ToList();
+        Assert.True(childNames.IndexOf("hidden") < childNames.IndexOf("tblHeader"),
+            $"tblHeader 顺序错误：{string.Join(",", childNames)}");
+        AssertTableRowPropertiesValid(word);
+    }
+
+    [Fact]
+    public void 表格服务_行前宽度属性必须位于TableHeader之后且通过结构校验()
+    {
+        using var stream = new MemoryStream();
+        using var word = CreateDirtyTableDocument(stream, withRowJustification: false);
+        var firstRow = word.MainDocumentPart!.Document!.Body!.Elements<Table>()
+            .Single().Elements<TableRow>().First();
+        var trPr = firstRow.GetFirstChild<TableRowProperties>() ?? firstRow.PrependChild(new TableRowProperties());
+        trPr.RemoveAllChildren<TableCellSpacing>();
+        trPr.AppendChild(new WidthBeforeTableRow { Width = "120", Type = TableWidthUnitValues.Dxa });
+
+        new TableService().Apply(word, hasCover: false);
+
+        var childNames = trPr.ChildElements.Select(x => x.LocalName).ToList();
+        Assert.True(childNames.IndexOf("tblHeader") < childNames.IndexOf("wBefore"),
+            $"tblHeader 顺序错误：{string.Join(",", childNames)}");
+        AssertTableRowPropertiesValid(word);
+    }
+
+    private static void AssertTableRowPropertiesValid(WordprocessingDocument word)
+    {
+        var errors = new OpenXmlValidator().Validate(word)
+            .Where(error => error.Path?.XPath?.Contains("/w:trPr", StringComparison.OrdinalIgnoreCase) == true)
+            .ToList();
+        Assert.True(errors.Count == 0,
+            string.Join(Environment.NewLine, errors.Select(error => error.Description)));
+    }
+
     private static void AssertTitlePitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);

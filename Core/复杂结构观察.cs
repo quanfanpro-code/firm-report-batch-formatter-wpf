@@ -1,4 +1,5 @@
-using System.Text;
+﻿using System.Text;
+using System.Security.Cryptography;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
@@ -18,6 +19,8 @@ public sealed class 复杂结构观察结果
     public required int 落款复杂结构数 { get; init; }
     public required string 文本框摘要 { get; init; }
     public required string 脚注尾注摘要 { get; init; }
+    public required string 文本框内容指纹 { get; init; }
+    public required string 脚注尾注内容指纹 { get; init; }
 }
 
 public static class 复杂结构观察服务
@@ -52,7 +55,9 @@ public static class 复杂结构观察服务
             域代码数 = body.Descendants<FieldCode>().Count(),
             落款复杂结构数 = 收集落款复杂结构数(signoffParagraphs),
             文本框摘要 = 拼接摘要(textBoxes),
-            脚注尾注摘要 = 拼接摘要(footnotes.Concat(endnotes))
+            脚注尾注摘要 = 拼接摘要(footnotes.Concat(endnotes)),
+            文本框内容指纹 = 计算内容指纹(textBoxes),
+            脚注尾注内容指纹 = 计算内容指纹(footnotes.Concat(endnotes))
         };
     }
 
@@ -102,6 +107,12 @@ public static class 复杂结构观察服务
         return summary.Length > 摘要最大长度
             ? summary[..摘要最大长度] + "…"
             : summary;
+    }
+
+    private static string 计算内容指纹(IEnumerable<string> texts)
+    {
+        var normalized = string.Join("\n", texts.Select(OpenXmlHelper.NormalizeText));
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(normalized)));
     }
 
     private static int 收集编号重启数(WordprocessingDocument word)

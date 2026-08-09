@@ -26,6 +26,6 @@ public static class 输出文件命名规则
     public static bool 是已排版文件(string path)
     {
         var fileName = Path.GetFileName(path);
-        return 工具输出文件名模式.IsMatch(fileName);
+        return fileName.StartsWith("~$", StringComparison.Ordinal) || 工具输出文件名模式.IsMatch(fileName);
     }
 }

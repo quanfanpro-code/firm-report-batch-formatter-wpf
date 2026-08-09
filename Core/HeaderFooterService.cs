@@ -20,18 +20,22 @@ public sealed class HeaderFooterService
 
     private readonly FirmRuleProfile _ruleProfile = FirmRuleProfile.Default;
 
-    public void Apply(WordprocessingDocument word, bool hasCover, bool isPureCover = false)
+    public void Apply(WordprocessingDocument word, bool hasCover, bool isPureCover = false, CancellationToken cancellationToken = default)
     {
         var main = word.MainDocumentPart;
         var body = main?.Document?.Body;
         if (main is null || body is null) return;
 
         var sections = OpenXmlHelper.收集分节(body);
+        var hasDedicatedCoverSection = hasCover && sections.Count > 1;
+        var evenAndOdd = main.DocumentSettingsPart?.Settings?.GetFirstChild<EvenAndOddHeaders>();
+        var useEvenPageFooter = evenAndOdd is not null && (evenAndOdd.Val?.Value ?? true);
         FooterPart? sharedFooterPart = null;
         for (var i = 0; i < sections.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var sectPr = sections[i];
-            var treatAsCover = isPureCover || (hasCover && i == 0);
+            var treatAsCover = isPureCover || (hasDedicatedCoverSection && i == 0);
             EnsurePageLayout(sectPr, treatAsCover, _ruleProfile);
 
             if (treatAsCover)
@@ -40,14 +44,14 @@ public sealed class HeaderFooterService
                 continue;
             }
 
-            if (hasCover && i == 1)
+            if (hasDedicatedCoverSection && i == 1)
             {
                 var pgNum = EnsurePageNumberType(sectPr);
                 pgNum.Start = 1;
             }
 
             FormatExistingHeaders(main, sectPr, _ruleProfile);
-            ReplaceFooterWithPageField(main, sectPr, _ruleProfile, ref sharedFooterPart);
+            ReplaceFooterWithPageField(main, sectPr, _ruleProfile, useEvenPageFooter, ref sharedFooterPart);
         }
     }
 
@@ -279,7 +283,7 @@ public sealed class HeaderFooterService
         return runProperties;
     }
 
-    private static void ReplaceFooterWithPageField(MainDocumentPart main, SectionProperties sectPr, FirmRuleProfile ruleProfile, ref FooterPart? sharedFooterPart)
+    private static void ReplaceFooterWithPageField(MainDocumentPart main, SectionProperties sectPr, FirmRuleProfile ruleProfile, bool useEvenPageFooter, ref FooterPart? sharedFooterPart)
     {
         foreach (var fr in sectPr.Elements<FooterReference>().ToList())
         {
@@ -290,6 +294,11 @@ public sealed class HeaderFooterService
         sharedFooterPart ??= CreatePageFieldFooterPart(main, ruleProfile);
         var relId = main.GetIdOfPart(sharedFooterPart);
         插入页脚引用到合法位置(sectPr, new FooterReference { Id = relId, Type = HeaderFooterValues.Default });
+
+        if (useEvenPageFooter)
+        {
+            插入页脚引用到合法位置(sectPr, new FooterReference { Id = relId, Type = HeaderFooterValues.Even });
+        }
 
         // 保留"首页不同"语义：该分节若带 titlePg，需同时挂 First 类型页脚引用，
         // 否则该节首页没有任何页脚，页码会在首页断号

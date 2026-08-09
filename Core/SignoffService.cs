@@ -81,7 +81,7 @@ public sealed class SignoffService
             .ToList();
     }
 
-    public void Apply(WordprocessingDocument word, List<Paragraph> signoffParagraphs)
+    public void Apply(WordprocessingDocument word, List<Paragraph> signoffParagraphs, CancellationToken cancellationToken = default)
     {
         if (signoffParagraphs == null || signoffParagraphs.Count == 0) return;
 
@@ -93,6 +93,7 @@ public sealed class SignoffService
 
         for (var i = 0; i < sortedParas.Count; i++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var p = sortedParas[i];
             OpenXmlHelper.EnsureParagraphProperties(p);
             var pPr = p.ParagraphProperties!;
@@ -115,6 +116,11 @@ public sealed class SignoffService
             // 统一落款区字体为中文宋体，英文Times New Roman，并清除杂项污染
             foreach (var run in p.Descendants<Run>())
             {
+                if (run.Descendants<FootnoteReference>().Any() || run.Descendants<EndnoteReference>().Any())
+                {
+                    continue;
+                }
+
                 run.RunProperties ??= new RunProperties();
                 OpenXmlHelper.SetRunFonts(run.RunProperties, _ruleProfile.中文字体, _ruleProfile.西文字体);
                 run.RunProperties.Bold = new Bold { Val = false };
@@ -186,9 +192,10 @@ public sealed class SignoffService
 
     private void NormalizeCpaSignatureLine(Paragraph paragraph)
     {
-        // 含链接、域、修订、公式等结构时只做安全的格式覆盖，不清空重建内容。
+        // 含链接、域、修订、换行、隐藏文字、脚注等结构时只做安全的格式覆盖，不清空重建内容。
         if (paragraph.Descendants().Any(element =>
                 element is Hyperlink or SimpleField or FieldCode or Drawing or InsertedRun or DeletedRun
+                    or Break or TabChar or Vanish or WebHidden or FootnoteReference or EndnoteReference
                 || element.LocalName is "sdt" or "oMath" or "oMathPara" or "object" or "pict"
                     or "commentRangeStart" or "commentRangeEnd" or "commentReference"))
         {

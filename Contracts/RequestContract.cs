@@ -10,6 +10,8 @@ public sealed class RequestContract
     public string? ScenarioName { get; set; }
     public string? RunSource { get; set; }
     public bool RequireScenarioVerification { get; set; }
+    [System.Text.Json.Serialization.JsonIgnore]
+    public CancellationToken CancellationToken { get; set; }
 
     /// <summary>
     /// 基本入参校验。返回 null 表示通过，否则返回可直接展示给用户的错误信息。

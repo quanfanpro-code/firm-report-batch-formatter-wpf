@@ -15,7 +15,7 @@ public sealed class ParagraphService
     private static readonly Regex DocNumberRegex = new(@"^川华信\S{0,8}[（(]\d{4}[)）]第?\d{1,6}号$", RegexOptions.Compiled);
     private static readonly string[] HeaderOrgKeywords = ["公司", "集团", "委员会", "事务所", "研究院", "中心", "学校", "学院", "银行"];
 
-    public void Apply(WordprocessingDocument word, bool hasCover, List<Paragraph> signoffParagraphs)
+    public void Apply(WordprocessingDocument word, bool hasCover, List<Paragraph> signoffParagraphs, CancellationToken cancellationToken = default)
     {
         var body = word.MainDocumentPart?.Document?.Body;
         if (body is null) return;
@@ -36,6 +36,7 @@ public sealed class ParagraphService
 
         foreach (var p in body.Descendants<Paragraph>())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             // [核心防御]：绝对不能碰表格里的段落，否则会把 TableService 辛辛苦苦调教的单倍行距和无缩进全部覆盖成 21 磅和 2 字符缩进！
             // 文本框（w:txbxContent）里的段落同样豁免，否则会被强套正文格式，破坏侧栏/签章文本框排版
             if (p.Ancestors<Table>().Any() || p.Ancestors<TextBoxContent>().Any())
@@ -72,6 +73,12 @@ public sealed class ParagraphService
         void 处理正文段落(Paragraph p)
         {
             var text = OpenXmlHelper.ParagraphText(p).Trim();
+
+            if (IsTableOfContentsParagraph(p))
+            {
+                inCoverZone = false;
+                return;
+            }
 
             if (inCoverZone && sectionIndex == 0)
             {
@@ -248,6 +255,12 @@ public sealed class ParagraphService
 
             foreach (var run in OpenXmlHelper.Runs(p).ToList())
             {
+                // 脚注/尾注引用的上标和字号由 Word 内置字符样式控制，不能按普通正文强制覆盖。
+                if (run.Descendants<FootnoteReference>().Any() || run.Descendants<EndnoteReference>().Any())
+                {
+                    continue;
+                }
+
                 run.RunProperties ??= new RunProperties();
 
                 var scale = run.RunProperties.GetFirstChild<CharacterScale>();
@@ -305,6 +318,14 @@ public sealed class ParagraphService
             }
 
         }
+    }
+
+    private static bool IsTableOfContentsParagraph(Paragraph paragraph)
+    {
+        var styleId = paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+        return !string.IsNullOrWhiteSpace(styleId)
+            && (styleId.StartsWith("TOC", StringComparison.OrdinalIgnoreCase)
+                || styleId.StartsWith("目录", StringComparison.Ordinal));
     }
 
     private static bool HasSectionBreak(Paragraph p)

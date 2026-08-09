@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -73,6 +73,30 @@ public sealed class 统一上下文与门禁测试
         Assert.Equal("2", gate.Facts["复杂结构.超链接数"]);
         Assert.Equal("1", gate.Facts["复杂结构.域代码数"]);
         Assert.Equal("2", gate.Facts["复杂结构.落款复杂结构数"]);
+    }
+
+    [Fact]
+    public void 门禁必须阻断排版后复杂结构数量减少()
+    {
+        using var stream = new MemoryStream();
+        using var word = CreateComplexDocument(stream);
+        var request = new RequestContract
+        {
+            InputPath = "输入.docx",
+            OutputPath = "输出.docx",
+            ScenarioName = "复杂结构防丢失",
+            RunSource = "测试"
+        };
+        var context = new FirmDocumentClassifier().BuildContext(word, request);
+
+        word.MainDocumentPart!.Document!.Body!.Elements<Paragraph>().First().Remove();
+        word.MainDocumentPart.FootnotesPart!.Footnotes!.Elements<Footnote>()
+            .Single(note => note.Id?.Value == 1).Remove();
+
+        var gate = new GateCheckService().Run(word, request, context);
+
+        Assert.False(gate.Success);
+        Assert.Contains(gate.BlockingIssues, issue => issue.Code == "complex_structure_loss");
     }
 
     private static WordprocessingDocument CreateDocument(MemoryStream stream, params OpenXmlElement[] bodyChildren)

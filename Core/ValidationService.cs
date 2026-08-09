@@ -132,7 +132,8 @@ public sealed class ValidationService
         ValidateHeadingSemantics(main, body, report);
         ValidateAutomaticBodyNumbering(main, body, report);
         ValidateTableRules(body, report);
-        ValidateSectionMargins(body, isPureCoverDocument, report, _ruleProfile);
+        ValidateSectionMargins(body, hasCover, isPureCoverDocument, report, _ruleProfile);
+        ValidatePageFooters(word, body, hasCover, isPureCoverDocument, report);
         ValidateSignoff(word, hasCover, report);
     }
 
@@ -188,7 +189,7 @@ public sealed class ValidationService
         foreach (var table in body.Elements<Table>())
         {
             var rows = table.Elements<TableRow>().ToList();
-            for (var rowIndex = 1; rowIndex < rows.Count; rowIndex++)
+            for (var rowIndex = TableService.GetHeaderRowCount(rows); rowIndex < rows.Count; rowIndex++)
             {
                 var cells = rows[rowIndex].Elements<TableCell>().ToList();
                 if (cells.Count == 0) continue;
@@ -209,10 +210,12 @@ public sealed class ValidationService
         }
     }
 
-    private static void ValidateSectionMargins(Body body, bool isPureCoverDocument, ValidationReportContract report, FirmRuleProfile ruleProfile)
+    private static void ValidateSectionMargins(Body body, bool hasCover, bool isPureCoverDocument, ValidationReportContract report, FirmRuleProfile ruleProfile)
     {
-        foreach (var section in OpenXmlHelper.收集分节(body))
+        var sections = OpenXmlHelper.收集分节(body);
+        for (var sectionIndex = 0; sectionIndex < sections.Count; sectionIndex++)
         {
+            var section = sections[sectionIndex];
             var pageMargin = section.GetFirstChild<PageMargin>();
             if (pageMargin == null)
             {
@@ -220,14 +223,50 @@ public sealed class ValidationService
                 continue;
             }
 
-            if (pageMargin.Top?.Value != (uint)ruleProfile.页边距上Twips || pageMargin.Left?.Value != (uint)ruleProfile.页边距左Twips)
+            if (pageMargin.Top?.Value != (uint)ruleProfile.页边距上Twips
+                || pageMargin.Left?.Value != (uint)ruleProfile.页边距左Twips
+                || pageMargin.Right?.Value != (uint)ruleProfile.页边距右Twips)
             {
-                report.AddIssue("业务", "page_margin_top_left", "页边距未收口到目标值");
+                report.AddIssue("业务", "page_margin_top_left_right", "上、左或右页边距未收口到目标值");
             }
 
-            if (isPureCoverDocument && pageMargin.Bottom?.Value != (uint)ruleProfile.纯封面下边距Twips)
+            var isDedicatedCoverSection = hasCover && sections.Count > 1 && sectionIndex == 0;
+            var expectedBottom = isPureCoverDocument || isDedicatedCoverSection
+                ? ruleProfile.纯封面下边距Twips
+                : ruleProfile.普通文档下边距Twips;
+            if (pageMargin.Bottom?.Value != (uint)expectedBottom)
             {
-                report.AddIssue("业务", "pure_cover_bottom_margin", $"纯封面下边距未收口到 {ruleProfile.纯封面下边距Twips / 567.0:0.0}cm");
+                report.AddIssue("业务", "page_margin_bottom", $"下边距未收口到 {expectedBottom / 567.0:0.0}cm");
+            }
+        }
+    }
+
+    private static void ValidatePageFooters(
+        WordprocessingDocument word,
+        Body body,
+        bool hasCover,
+        bool isPureCoverDocument,
+        ValidationReportContract report)
+    {
+        if (isPureCoverDocument) return;
+
+        var sections = OpenXmlHelper.收集分节(body);
+        var firstContentSection = hasCover && sections.Count > 1 ? 1 : 0;
+        var useEvenPageFooter = word.MainDocumentPart?.DocumentSettingsPart?.Settings?
+            .GetFirstChild<EvenAndOddHeaders>() is { } setting && (setting.Val?.Value ?? true);
+
+        for (var index = firstContentSection; index < sections.Count; index++)
+        {
+            var footerTypes = sections[index].Elements<FooterReference>()
+                .Select(reference => reference.Type?.Value)
+                .ToHashSet();
+            if (!footerTypes.Contains(HeaderFooterValues.Default))
+            {
+                report.AddIssue("业务", "page_footer_missing", $"正文第 {index + 1} 节缺少默认页码页脚");
+            }
+            if (useEvenPageFooter && !footerTypes.Contains(HeaderFooterValues.Even))
+            {
+                report.AddIssue("业务", "even_page_footer_missing", $"正文第 {index + 1} 节缺少偶数页页码页脚");
             }
         }
     }

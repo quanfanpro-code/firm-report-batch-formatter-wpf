@@ -161,7 +161,7 @@ public partial class MainWindow : FluentWindow
                     return;
                 }
                 Dispatcher.Invoke(() => AppendLog($"开始处理文件：{path}"));
-                var output = 处理单个文件(path);
+                var output = 处理单个文件(path, token);
                 Dispatcher.Invoke(() =>
                 {
                     AppendLog($"输出文件：{output}");
@@ -172,10 +172,13 @@ public partial class MainWindow : FluentWindow
             }
             else
             {
-                var searchOption = includeSubfolders
-                    ? SearchOption.AllDirectories
-                    : SearchOption.TopDirectoryOnly;
-                var files = Directory.GetFiles(path, "*.docx", searchOption)
+                var enumerationOptions = new EnumerationOptions
+                {
+                    RecurseSubdirectories = includeSubfolders,
+                    IgnoreInaccessible = true,
+                    MatchCasing = MatchCasing.CaseInsensitive
+                };
+                var files = Directory.EnumerateFiles(path, "*.docx", enumerationOptions)
                     .Where(f => !输出文件命名规则.是已排版文件(f))
                     .ToList();
 
@@ -200,15 +203,12 @@ public partial class MainWindow : FluentWindow
                     var idx = i + 1;
                     try
                     {
-                        var output = 处理单个文件(file);
+                        var output = 处理单个文件(file, token);
                         success++;
                         if (token.IsCancellationRequested) break;
                         Dispatcher.Invoke(() =>
                         {
                             AppendLog($"[{idx}/{files.Count}] ✓ {Path.GetFileName(file)} → {Path.GetFileName(output)}", LogType.Success);
-                            _progressBar.Value = (double)idx / files.Count * 100;
-                            _progressLabel.Text = $"{idx}/{files.Count}";
-                            _statusText.Text = $"正在处理：{Path.GetFileName(file)}";
                         });
                     }
                     catch (UnauthorizedAccessException ex)
@@ -232,6 +232,15 @@ public partial class MainWindow : FluentWindow
                             Dispatcher.Invoke(() =>
                                 AppendLog($"[{idx}/{files.Count}] ✗ {Path.GetFileName(file)} - {提炼异常日志(ex)}", LogType.Error));
                         }
+                    }
+                    finally
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            _progressBar.Value = (double)idx / files.Count * 100;
+                            _progressLabel.Text = $"{idx}/{files.Count}";
+                            _statusText.Text = $"正在处理：{Path.GetFileName(file)}";
+                        });
                     }
                 }
 
@@ -277,7 +286,7 @@ public partial class MainWindow : FluentWindow
         }
     }
 
-    private string 处理单个文件(string inputPath)
+    private string 处理单个文件(string inputPath, CancellationToken token)
     {
         var outputPath = 输出文件命名规则.生成输出路径(inputPath);
 
@@ -287,7 +296,8 @@ public partial class MainWindow : FluentWindow
             OutputPath = outputPath,
             HasCoverOverride = null,
             ScenarioName = "常规",
-            RunSource = "GUI"
+            RunSource = "GUI",
+            CancellationToken = token
         };
 
         var pipeline = new DocumentPipeline(evt =>
@@ -306,6 +316,8 @@ public partial class MainWindow : FluentWindow
 
         var result = pipeline.Run(request);
 
+        if (result.ErrorCode == "cancelled")
+            throw new OperationCanceledException(token);
         if (!result.Success)
             throw new InvalidOperationException(
                 $"流水线返回失败（{result.ErrorCode ?? "unknown"}）：{result.Message ?? "未知错误"}");
@@ -320,6 +332,8 @@ public partial class MainWindow : FluentWindow
             text = "文档结构异常或损坏";
         if (text.Contains("openxml_engine_failed"))
             text = "OpenXML引擎执行失败";
+        if (text.Contains("validation_failed"))
+            text = text.Replace("流水线返回失败（validation_failed）：", "文档未通过排版检查：");
         if (text.Contains("bad_request_json"))
             text = "OpenXML引擎请求参数异常";
         if (text.Contains("invalid_request"))

@@ -13,35 +13,39 @@ public sealed class TableService
     private static readonly string[] 数字格式豁免列表头关键词 =
     [
         "序号", "编号", "代码", "号码",
+        "账号", "识别号",
         "年份", "年度", "月份", "季度", "日期", "账龄", "期数", "页码",
         "数量", "人数", "户数", "件数", "台数"
     ];
 
-    // 以下为表格专用排版参数，取值应与 FirmRuleProfile（正文字号HalfPoint / 中文字体 / 西文字体）保持一致；
-    // FirmRuleProfile 暂未收纳字符间距等表格参数，如需调整请两边同步修改
-    private const string 表格字号HalfPoint = "24";
+    private readonly FirmRuleProfile _ruleProfile = FirmRuleProfile.Default;
+    // 字符间距仍是表格专用参数，其他通用字体字号直接使用统一规则来源。
     private const int 表格字符间距紧缩Twips = -20; // twips 单位，-20 表示紧缩 1 磅
-    private const string 表格中文字体 = "宋体";
-    private const string 表格西文字体 = "Times New Roman";
+    public int 已格式化数字单元格数 { get; private set; }
+    public int 发生两位小数舍入的单元格数 { get; private set; }
 
-    public void Apply(WordprocessingDocument word, bool hasCover)
+    public void Apply(WordprocessingDocument word, bool hasCover, CancellationToken cancellationToken = default)
     {
+        已格式化数字单元格数 = 0;
+        发生两位小数舍入的单元格数 = 0;
         var body = word.MainDocumentPart?.Document?.Body;
         if (body is null) return;
 
+        var hasDedicatedCoverSection = hasCover && OpenXmlHelper.收集分节(body).Count > 1;
         var sectionIndex = 0;
         foreach (var child in body.Elements())
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (child is Paragraph p && p.ParagraphProperties?.GetFirstChild<SectionProperties>() is not null)
             {
                 sectionIndex++;
             }
 
             if (child is not Table table) continue;
-            if (hasCover && sectionIndex == 0) continue;
+            if (hasDedicatedCoverSection && sectionIndex == 0) continue;
             // 封面表判定只限第一节：正文/落款附近含"会计师事务所、地址、电话、传真"的信息表不应被误判为封面表而跳过格式化
             if (sectionIndex == 0 && IsCoverTable(table)) continue;
-            ApplyTable(table);
+            ApplyTable(table, cancellationToken);
         }
     }
 
@@ -51,7 +55,7 @@ public sealed class TableService
         return t.Contains("会计师事务所") && t.Contains("地址") && t.Contains("电话") && t.Contains("传真");
     }
 
-    private static void ApplyTable(Table table)
+    private void ApplyTable(Table table, CancellationToken cancellationToken)
     {
         var tableProps = table.GetFirstChild<TableProperties>();
         if (tableProps is null)
@@ -76,26 +80,16 @@ public sealed class TableService
         );
 
         var rows = table.Elements<TableRow>().ToList();
-        var numberFormatExemptColumns = rows.Count == 0
-            ? []
-            : rows[0].Elements<TableCell>()
-                .Select((cell, index) => new
-                {
-                    Index = index,
-                    Header = OpenXmlHelper.NormalizeText(OpenXmlHelper.提取可见文本(cell))
-                })
-                .Where(item => 数字格式豁免列表头关键词.Any(keyword =>
-                    item.Header.Contains(keyword, StringComparison.Ordinal)))
-                .Select(item => item.Index)
-                .ToHashSet();
-        if (rows.Count > 0)
+        var headerRowCount = GetHeaderRowCount(rows);
+        var numberFormatExemptColumns = GetNumberFormatExemptColumns(rows, headerRowCount);
+        for (var headerRowIndex = 0; headerRowIndex < headerRowCount; headerRowIndex++)
         {
-            var firstRow = rows[0];
-            var trPr = firstRow.GetFirstChild<TableRowProperties>();
+            var headerRow = rows[headerRowIndex];
+            var trPr = headerRow.GetFirstChild<TableRowProperties>();
             if (trPr == null)
             {
                 trPr = new TableRowProperties();
-                firstRow.PrependChild(trPr);
+                headerRow.PrependChild(trPr);
             }
             if (trPr.GetFirstChild<TableHeader>() == null)
             {
@@ -104,12 +98,17 @@ public sealed class TableService
         }
         for (int rowIndex = 0; rowIndex < rows.Count; rowIndex++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var row = rows[rowIndex];
             row.GetFirstChild<TableRowProperties>()?.GetFirstChild<TableCellSpacing>()?.Remove();
             var cells = row.Elements<TableCell>().ToList();
+            var logicalColIndex = row.TableRowProperties?.GetFirstChild<GridBefore>()?.Val?.Value ?? 0;
             for (int colIndex = 0; colIndex < cells.Count; colIndex++)
             {
                 var cell = cells[colIndex];
+                var currentLogicalColIndex = logicalColIndex;
+                var logicalSpan = Math.Max(1, cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1);
+                logicalColIndex += logicalSpan;
                 var tcPr = cell.GetFirstChild<TableCellProperties>();
                 if (tcPr == null)
                 {
@@ -132,10 +131,14 @@ public sealed class TableService
                 tcPr.TableCellVerticalAlignment = new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center };
 
                 var text = OpenXmlHelper.提取可见文本(cell).Trim();
-                var formatted = FormatCellDisplayText(rowIndex, numberFormatExemptColumns.Contains(colIndex), text, out var isPureNumeric);
+                var isNumberFormatExemptColumn = Enumerable.Range(currentLogicalColIndex, logicalSpan)
+                    .Any(numberFormatExemptColumns.Contains);
+                var formatted = FormatCellDisplayText(rowIndex, headerRowCount, isNumberFormatExemptColumn, text, out var isPureNumeric, out var wasRounded);
                 if (formatted is not null && 单元格可安全重写(cell))
                 {
                     ReplaceCellTextPreservingStructure(cell, formatted);
+                    已格式化数字单元格数++;
+                    if (wasRounded) 发生两位小数舍入的单元格数++;
                 }
 
                 foreach (var p in cell.Elements<Paragraph>())
@@ -170,11 +173,10 @@ public sealed class TableService
                     };
 
                     p.ParagraphProperties.GetFirstChild<Tabs>()?.Remove();
-                    p.ParagraphProperties.GetFirstChild<NumberingProperties>()?.Remove();
                     if (p.ParagraphProperties.OutlineLevel != null) p.ParagraphProperties.OutlineLevel.Remove();
                     if (p.ParagraphProperties.KeepNext != null) p.ParagraphProperties.KeepNext.Remove();
 
-                    if (rowIndex == 0)
+                    if (rowIndex < headerRowCount)
                     {
                         p.ParagraphProperties.Justification = new Justification { Val = JustificationValues.Center };
                     }
@@ -193,8 +195,13 @@ public sealed class TableService
 
                     foreach (var run in p.Descendants<Run>())
                     {
+                        if (run.Descendants<FootnoteReference>().Any() || run.Descendants<EndnoteReference>().Any())
+                        {
+                            continue;
+                        }
+
                         run.RunProperties ??= new RunProperties();
-                        run.RunProperties.FontSize = new FontSize { Val = 表格字号HalfPoint };
+                        run.RunProperties.FontSize = new FontSize { Val = _ruleProfile.正文字号HalfPoint };
 
                         // 移除任何字体缩放，恢复默认100%
                         var scale = run.RunProperties.GetFirstChild<CharacterScale>();
@@ -221,31 +228,96 @@ public sealed class TableService
                         var underline = run.RunProperties.GetFirstChild<Underline>();
                         if (underline != null) underline.Remove();
 
-                        OpenXmlHelper.SetRunFonts(run.RunProperties, 表格中文字体, 表格西文字体);
+                        OpenXmlHelper.SetRunFonts(run.RunProperties, _ruleProfile.中文字体, _ruleProfile.西文字体);
                     }
                 }
             }
         }
     }
 
-    private static string? FormatCellDisplayText(int rowIndex, bool isNumberFormatExemptColumn, string rawText, out bool isPureNumeric)
+    private static string? FormatCellDisplayText(int rowIndex, int headerRowCount, bool isNumberFormatExemptColumn, string rawText, out bool isPureNumeric, out bool wasRounded)
     {
         isPureNumeric = false;
+        wasRounded = false;
 
         // 首行恒为表头行（ApplyTable 已为 rows[0] 加 TableHeader 并居中），
         // 表头不做数字格式化，避免"2023"这类纯数字表头被改成"2,023.00"
-        if (rowIndex == 0) return null;
+        if (rowIndex < headerRowCount) return null;
 
         // 标识、期间和数量类列保持原始显示，包括 0、前导零和带点编号。
         if (isNumberFormatExemptColumn) return null;
 
-        var formatted = FormatPureNumericCell(rawText);
+        var formatted = FormatPureNumericCell(rawText, out wasRounded);
         isPureNumeric = formatted != null;
         return formatted;
     }
 
-    private static string? FormatPureNumericCell(string rawText)
+    internal static int GetHeaderRowCount(IReadOnlyList<TableRow> rows)
     {
+        if (rows.Count == 0) return 0;
+
+        var count = 1;
+        while (count < rows.Count && rows[count].GetFirstChild<TableRowProperties>()?.GetFirstChild<TableHeader>() is not null)
+        {
+            count++;
+        }
+
+        if (count == 1 && rows.Count > 1 && rows[0].Elements<TableCell>()
+                .Select(cell => cell.TableCellProperties)
+                .Any(properties => properties is not null
+                    && ((properties.GridSpan?.Val?.Value ?? 1) > 1 || properties.VerticalMerge is not null)))
+        {
+            count = 2;
+        }
+
+        return count;
+    }
+
+    private static IEnumerable<(int Index, string Header)> EnumerateLogicalCells(TableRow row)
+    {
+        var logicalIndex = row.TableRowProperties?.GetFirstChild<GridBefore>()?.Val?.Value ?? 0;
+        foreach (var cell in row.Elements<TableCell>())
+        {
+            var header = OpenXmlHelper.NormalizeText(OpenXmlHelper.提取可见文本(cell));
+            var span = Math.Max(1, cell.TableCellProperties?.GridSpan?.Val?.Value ?? 1);
+            for (var offset = 0; offset < span; offset++)
+            {
+                yield return (logicalIndex + offset, header);
+            }
+            logicalIndex += span;
+        }
+    }
+
+    private static HashSet<int> GetNumberFormatExemptColumns(IReadOnlyList<TableRow> rows, int headerRowCount)
+    {
+        var leafHeaders = new Dictionary<int, string>();
+        foreach (var row in rows.Take(headerRowCount))
+        {
+            foreach (var item in EnumerateLogicalCells(row))
+            {
+                if (!string.IsNullOrWhiteSpace(item.Header))
+                {
+                    leafHeaders[item.Index] = item.Header;
+                }
+            }
+        }
+
+        return leafHeaders
+            .Where(item => IsNumberFormatExemptHeader(item.Value))
+            .Select(item => item.Key)
+            .ToHashSet();
+    }
+
+    private static bool IsNumberFormatExemptHeader(string header)
+    {
+        return 数字格式豁免列表头关键词.Any(keyword => header.Contains(keyword, StringComparison.Ordinal))
+            || header.EndsWith("账户", StringComparison.Ordinal)
+            || header.Contains("账户号", StringComparison.Ordinal);
+    }
+
+    private static string? FormatPureNumericCell(string rawText, out bool wasRounded)
+    {
+        wasRounded = false;
         var raw = rawText.Replace("\u3000", "").Replace(" ", "").Replace("（", "(").Replace("）", ")").Replace("[", "(").Replace("]", ")").Replace("％", "%").Replace("，", ","); // 全角 ％→%、，→,（全角逗号随后作为千分位剔除）
         if (raw.Length == 0) return null;
         if (raw == "-") return "";
@@ -261,6 +333,7 @@ public sealed class TableService
 
         if (bracket) value = -Math.Abs(value);
         if (value == 0) return "";
+        wasRounded = decimal.Round(value, 2, MidpointRounding.ToEven) != value;
 
         var abs = Math.Abs(value);
         var formatted = abs.ToString("N2", CultureInfo.InvariantCulture);
@@ -299,6 +372,8 @@ public sealed class TableService
         if (cell.Descendants<FieldCode>().Any()) return false;
         if (cell.Descendants<Break>().Any()) return false;
         if (cell.Descendants<TabChar>().Any()) return false;
+        if (cell.Descendants<FootnoteReference>().Any() || cell.Descendants<EndnoteReference>().Any()) return false;
+        if (cell.Descendants<Vanish>().Any() || cell.Descendants<WebHidden>().Any()) return false;
         if (cell.Descendants<Drawing>().Any()) return false;
         if (cell.Descendants<Hyperlink>().Any()) return false;
         if (cell.Descendants<InsertedRun>().Any()) return false;
@@ -353,9 +428,9 @@ public sealed class TableService
     private static void InsertTableHeaderInSchemaOrder(TableRowProperties trPr)
     {
         var anchor = trPr.Elements<OpenXmlElement>()
-            .FirstOrDefault(element =>
-                element is TableCellSpacing ||
-                element is Justification);
+            .FirstOrDefault(element => element.LocalName is
+                "wBefore" or "wAfter" or "tblCellSpacing" or "jc" or
+                "ins" or "del" or "conflictIns" or "conflictDel" or "trPrChange");
 
         if (anchor != null)
         {

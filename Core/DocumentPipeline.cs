@@ -38,6 +38,7 @@ public sealed class DocumentPipeline
         string? 临时输出路径 = null;
         try
         {
+            request.CancellationToken.ThrowIfCancellationRequested();
             var outputDirectory = Path.GetDirectoryName(Path.GetFullPath(request.OutputPath))!;
             临时输出路径 = Path.Combine(
                 outputDirectory,
@@ -56,6 +57,7 @@ public sealed class DocumentPipeline
 
             var classifier = new FirmDocumentClassifier();
             var context = classifier.BuildContext(word, request);
+            request.CancellationToken.ThrowIfCancellationRequested();
 
             if (context.IsPureCoverDocument)
             {
@@ -70,28 +72,38 @@ public sealed class DocumentPipeline
                 _emit(new LogEventContract("info", "cover", "cover_detected", context.HasCover ? "1" : "0"));
 
                 var headerFooter = new HeaderFooterService();
-                headerFooter.Apply(word, context.HasCover);
+                headerFooter.Apply(word, context.HasCover, cancellationToken: request.CancellationToken);
                 _emit(new LogEventContract("info", "header_footer", "header_footer_done", "已处理页眉页脚和页码"));
 
                 // 预扫描：精准定位落款区，以便正文排版时完美避开
                 var signoffService = new SignoffService();
                 var signoffParagraphs = signoffService.IdentifySignoffParagraphs(word, context.HasCover);
+                request.CancellationToken.ThrowIfCancellationRequested();
+                if (signoffParagraphs.Count == 0)
+                {
+                    _emit(new LogEventContract("warning", "signoff", "signoff_not_found", "未识别到落款区，请人工复核签字页"));
+                }
 
                 // [核心流水线修复]：先铺大底色（正文），再精雕细琢（表格、落款）。绝对不能把粗活放在细活后面！
                 var paragraph = new ParagraphService();
-                paragraph.Apply(word, context.HasCover, signoffParagraphs);
+                paragraph.Apply(word, context.HasCover, signoffParagraphs, request.CancellationToken);
                 _emit(new LogEventContract("info", "paragraph", "paragraph_done", "已处理段落与标题"));
 
                 var table = new TableService();
-                table.Apply(word, context.HasCover);
-                _emit(new LogEventContract("info", "table", "table_done", "已处理表格"));
+                table.Apply(word, context.HasCover, request.CancellationToken);
+                _emit(new LogEventContract("info", "table", "table_done", $"已处理表格，改写数字 {table.已格式化数字单元格数} 格"));
+                if (table.发生两位小数舍入的单元格数 > 0)
+                {
+                    _emit(new LogEventContract("warning", "table", "numeric_rounding", $"有 {table.发生两位小数舍入的单元格数} 个数字超过两位小数，已按两位小数舍入，请抽查"));
+                }
 
-                signoffService.Apply(word, signoffParagraphs);
+                signoffService.Apply(word, signoffParagraphs, request.CancellationToken);
                 _emit(new LogEventContract("info", "signoff", "signoff_done", "已处理落款区"));
             }
 
             // 保存前按 schema 顺序规范化样式子元素，避免 OpenXmlValidator 误报
             OpenXmlHelper.NormalizeStyleChildOrder(word);
+            request.CancellationToken.ThrowIfCancellationRequested();
             word.MainDocumentPart?.Document?.Save();
 
             var gateCheck = new GateCheckService();
@@ -164,8 +176,14 @@ public sealed class DocumentPipeline
                     try { _emit(new LogEventContract("warning", "pipeline", "failure_copy_move_failed", $"失败件保留在临时路径：{临时输出路径}；改名失败：{moveEx.Message}")); } catch { }
                 }
             }
-            try { _emit(new LogEventContract("error", "pipeline", "fatal", ex.Message)); } catch { }
-            return new ResponseContract(false, failureOutputPath, "openxml_engine_failed", ex.Message);
+            var errorCode = ex switch
+            {
+                OperationCanceledException => "cancelled",
+                InvalidDataException => "validation_failed",
+                _ => "openxml_engine_failed"
+            };
+            try { _emit(new LogEventContract("error", "pipeline", errorCode, ex.Message)); } catch { }
+            return new ResponseContract(false, failureOutputPath, errorCode, ex.Message);
         }
     }
 
