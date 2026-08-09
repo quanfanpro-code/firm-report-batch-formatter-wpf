@@ -1,0 +1,116 @@
+<ui:FluentWindow x:Class="事务所出报告批量排版WPF版.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
+        Title="事务所出报告批量排版" Height="620" Width="760"
+        WindowStartupLocation="CenterScreen" ResizeMode="CanResize"
+        ExtendsContentIntoTitleBar="True"
+        WindowBackdropType="Mica"
+        WindowCornerPreference="Round"
+        Icon="程序图标.ico"
+        FontFamily="Microsoft YaHei">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <ui:TitleBar Grid.Row="0" Title="事务所出报告批量排版">
+            <ui:TitleBar.Resources>
+                <Style TargetType="ui:TitleBarButton" BasedOn="{StaticResource {x:Type ui:TitleBarButton}}">
+                    <Style.Triggers>
+                        <Trigger Property="ButtonType" Value="Minimize">
+                            <Setter Property="Background" Value="#1A73E8" />
+                            <Setter Property="ButtonsForeground" Value="White" />
+                            <Setter Property="MouseOverBackground" Value="#1557B0" />
+                            <Setter Property="MouseOverButtonsForeground" Value="White" />
+                        </Trigger>
+                        <Trigger Property="ButtonType" Value="Maximize">
+                            <Setter Property="Background" Value="#107C10" />
+                            <Setter Property="ButtonsForeground" Value="White" />
+                            <Setter Property="MouseOverBackground" Value="#0B5A0B" />
+                            <Setter Property="MouseOverButtonsForeground" Value="White" />
+                        </Trigger>
+                        <Trigger Property="ButtonType" Value="Restore">
+                            <Setter Property="Background" Value="#107C10" />
+                            <Setter Property="ButtonsForeground" Value="White" />
+                            <Setter Property="MouseOverBackground" Value="#0B5A0B" />
+                            <Setter Property="MouseOverButtonsForeground" Value="White" />
+                        </Trigger>
+                        <Trigger Property="ButtonType" Value="Close">
+                            <Setter Property="Background" Value="#E81123" />
+                            <Setter Property="ButtonsForeground" Value="White" />
+                            <Setter Property="MouseOverBackground" Value="#F1707A" />
+                            <Setter Property="MouseOverButtonsForeground" Value="White" />
+                        </Trigger>
+                    </Style.Triggers>
+                </Style>
+            </ui:TitleBar.Resources>
+        </ui:TitleBar>
+        <Grid Grid.Row="1" Margin="24,0,24,24">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Border Grid.Row="0" Background="{DynamicResource ControlFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="20" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Text="文件选择" FontSize="14" FontWeight="SemiBold" Margin="0,0,0,12"/>
+                    <TextBox x:Name="_selectedPathBox" IsReadOnly="True" Margin="0,0,0,10" Height="32"
+                             VerticalContentAlignment="Center" Padding="8,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                        <ui:Button Content="浏览文件" Width="120" Height="32" Margin="0,0,10,0"
+                                   Click="BrowseFile_Click" Appearance="Primary"/>
+                        <ui:Button Content="浏览文件夹" Width="120" Height="32"
+                                   Click="BrowseFolder_Click" Appearance="Primary"/>
+                    </StackPanel>
+                    <CheckBox x:Name="_includeSubfoldersCheck"
+                              Content="批量处理时包含子文件夹" FontSize="12"/>
+                </StackPanel>
+            </Border>
+            <Grid Grid.Row="1" Margin="0,0,0,16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <ui:Button x:Name="_startButton"
+                           Width="140" Height="38" FontSize="14" FontWeight="SemiBold"
+                           Click="Start_Click"/>
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="16,0,0,0">
+                    <Grid>
+                        <TextBlock x:Name="_statusText" Text="就绪" FontSize="12"/>
+                        <TextBlock x:Name="_progressLabel" Text="" FontSize="12"
+                                   HorizontalAlignment="Right"/>
+                    </Grid>
+                    <ProgressBar x:Name="_progressBar" Minimum="0" Maximum="100" Value="0"
+                                 Height="4" Margin="0,6,0,0"/>
+                </StackPanel>
+            </Grid>
+            <Border Grid.Row="2" Background="{DynamicResource ControlFillColorDefaultBrush}"
+                    CornerRadius="8" Padding="16">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <TextBlock Grid.Row="0" Text="处理日志" FontSize="14" FontWeight="SemiBold"
+                               Margin="0,0,0,8"/>
+                    <RichTextBox x:Name="_logBox" Grid.Row="1" IsReadOnly="True"
+                                 VerticalScrollBarVisibility="Auto"
+                                 FontSize="12"
+                                 BorderThickness="0" Background="#1E1E1E"
+                                 Foreground="#CCCCCC">
+                        <RichTextBox.Resources>
+                            <Style TargetType="{x:Type Paragraph}">
+                                <Setter Property="Margin" Value="0,0,0,4"/>
+                                <Setter Property="LineHeight" Value="18"/>
+                            </Style>
+                        </RichTextBox.Resources>
+                        <FlowDocument PagePadding="8"
+                                      FontFamily="Microsoft YaHei" FontSize="12"/>
+                    </RichTextBox>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</ui:FluentWindow>

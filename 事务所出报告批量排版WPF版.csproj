@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="DocumentFormat.OpenXml" Version="3.2.0" />
+    <PackageReference Include="WPF-UI" Version="4.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Remove="事务所出报告批量排版WPF版.Tests\**\*.cs" />
+    <EmbeddedResource Remove="事务所出报告批量排版WPF版.Tests\**\*" />
+    <None Remove="事务所出报告批量排版WPF版.Tests\**\*" />
+    <Page Remove="事务所出报告批量排版WPF版.Tests\**\*" />
+    <Compile Remove="开发测试\**\*.cs" />
+    <EmbeddedResource Remove="开发测试\**\*" />
+    <None Remove="开发测试\**\*" />
+    <Page Remove="开发测试\**\*" />
+    <Compile Remove="Tools\DocxValidation\**\*.cs" />
+    <EmbeddedResource Remove="Tools\DocxValidation\**\*" />
+    <None Remove="Tools\DocxValidation\**\*" />
+    <Page Remove="Tools\DocxValidation\**\*" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,15 @@
+﻿.vs/
+**/bin/
+**/obj/
+publish/
+artifacts/
+*.user
+*.suo
+*.docx
+*.snapshot.json
+*.diff.json
+Validation/
+Core/规划/
+docs/requirements/
+docs/superpowers/
+docs/reviews/
