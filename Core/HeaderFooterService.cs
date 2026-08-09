@@ -1,4 +1,4 @@
-using DocumentFormat.OpenXml;
+﻿using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
@@ -205,8 +205,10 @@ public sealed class HeaderFooterService
             try { headerPart = main.GetPartById(hr.Id.Value) as HeaderPart; }
             catch (ArgumentOutOfRangeException) { continue; }
             if (headerPart is null) continue;
+            var header = headerPart.Header;
+            if (header is null) continue;
 
-            foreach (var p in headerPart.Header.Descendants<Paragraph>())
+            foreach (var p in header.Descendants<Paragraph>())
             {
                 ResetHeaderParagraphProperties(p);
 
@@ -215,7 +217,7 @@ public sealed class HeaderFooterService
                     run.RunProperties = CreateHeaderRunProperties(ruleProfile);
                 }
             }
-            headerPart.Header.Save();
+            header.Save();
         }
     }
 

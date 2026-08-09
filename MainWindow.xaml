@@ -1,4 +1,4 @@
-<ui:FluentWindow x:Class="事务所出报告批量排版WPF版.MainWindow"
+﻿<ui:FluentWindow x:Class="事务所出报告批量排版WPF版.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.lepo.co/wpfui/2022/xaml"
@@ -7,7 +7,6 @@
         ExtendsContentIntoTitleBar="True"
         WindowBackdropType="Mica"
         WindowCornerPreference="Round"
-        Icon="程序图标.ico"
         FontFamily="Microsoft YaHei">
     <Grid>
         <Grid.RowDefinitions>

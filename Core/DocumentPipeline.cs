@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using DocumentFormat.OpenXml.Packaging;
 using FirmFormatter.OpenXml.Contracts;
 
@@ -35,17 +35,21 @@ public sealed class DocumentPipeline
         }
 
         WordprocessingDocument? word = null;
-        var 已创建输出 = false;
+        string? 临时输出路径 = null;
         try
         {
-            // 上层 输出文件命名规则 已保证输出名不冲突；overwrite:false 让"检查存在"到"复制"之间的竞态快速失败，而不是覆盖他人文件
-            File.Copy(request.InputPath, request.OutputPath, false);
-            已创建输出 = true;
+            var outputDirectory = Path.GetDirectoryName(Path.GetFullPath(request.OutputPath))!;
+            临时输出路径 = Path.Combine(
+                outputDirectory,
+                $".{Path.GetFileNameWithoutExtension(request.OutputPath)}.正在排版_{Guid.NewGuid():N}.docx");
+
+            // 先在同目录临时文件中完成全部处理和验证，成功后再原子移动成正式输出名。
+            File.Copy(request.InputPath, 临时输出路径, false);
             // Copy 会连同源文件的只读属性一起复制，不重置则随后以可写方式 Open 抛 UnauthorizedAccessException
-            File.SetAttributes(request.OutputPath, FileAttributes.Normal);
+            File.SetAttributes(临时输出路径, FileAttributes.Normal);
             _emit(new LogEventContract("info", "io", "copy_done", "已复制输入文档"));
 
-            word = WordprocessingDocument.Open(request.OutputPath, true);
+            word = WordprocessingDocument.Open(临时输出路径, true);
 
             // 先修复旧版兼容格式遗留问题（如 evenAndOddHeaders 误入 SectionProperties），再排版
             OpenXmlHelper.CleanupLegacySectionProperties(word);
@@ -119,6 +123,20 @@ public sealed class DocumentPipeline
             word.Dispose();
             word = null;
 
+            // Dispose 后重新打开最终落盘文件，确保包结构确实可读；schema 兼容性差异仍按用户要求只警告。
+            using (var reopened = WordprocessingDocument.Open(临时输出路径, false))
+            {
+                _ = new ValidationService().Validate(
+                    reopened,
+                    context.HasCover,
+                    context.IsPureCoverDocument,
+                    request.ScenarioName,
+                    throwOnFailure: true);
+            }
+
+            File.Move(临时输出路径, request.OutputPath, false);
+            临时输出路径 = null;
+
             return new ResponseContract(true, request.OutputPath, null, "ok", gateResult);
         }
         catch (Exception ex)
@@ -131,17 +149,23 @@ public sealed class DocumentPipeline
                     try { _emit(new LogEventContract("warning", "pipeline", "dispose_failed", $"失败路径释放文档时出错：{disposeEx.Message}")); } catch { }
                 }
             }
-            // 只删除本次流水线自己创建的半成品；若 Copy 因文件名冲突失败，绝不能误删他人的既有文件
-            if (已创建输出)
+            var failureOutputPath = request.OutputPath;
+            if (!string.IsNullOrWhiteSpace(临时输出路径) && File.Exists(临时输出路径))
             {
-                try { if (File.Exists(request.OutputPath)) File.Delete(request.OutputPath); }
-                catch (Exception deleteEx)
+                try
                 {
-                    try { _emit(new LogEventContract("warning", "pipeline", "delete_failed", $"清理半成品文件失败，请手动删除 {request.OutputPath}：{deleteEx.Message}")); } catch { }
+                    failureOutputPath = BuildFailureOutputPath(request.OutputPath);
+                    File.Move(临时输出路径, failureOutputPath, false);
+                    _emit(new LogEventContract("warning", "pipeline", "failure_copy_kept", $"失败件已保留：{failureOutputPath}"));
+                }
+                catch (Exception moveEx)
+                {
+                    failureOutputPath = 临时输出路径;
+                    try { _emit(new LogEventContract("warning", "pipeline", "failure_copy_move_failed", $"失败件保留在临时路径：{临时输出路径}；改名失败：{moveEx.Message}")); } catch { }
                 }
             }
             try { _emit(new LogEventContract("error", "pipeline", "fatal", ex.Message)); } catch { }
-            return new ResponseContract(false, request.OutputPath, "openxml_engine_failed", ex.Message);
+            return new ResponseContract(false, failureOutputPath, "openxml_engine_failed", ex.Message);
         }
     }
 
@@ -156,5 +180,18 @@ public sealed class DocumentPipeline
             .Take(8)
             .Select(issue => $"[{issue.Layer}] {issue.Code}：{issue.Message}");
         return "统一门禁失败：" + Environment.NewLine + string.Join(Environment.NewLine, lines);
+    }
+
+    private static string BuildFailureOutputPath(string requestedOutputPath)
+    {
+        var directory = Path.GetDirectoryName(Path.GetFullPath(requestedOutputPath))!;
+        var baseName = Path.GetFileNameWithoutExtension(requestedOutputPath);
+        var stamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
+        var candidate = Path.Combine(directory, $"{baseName}_排版失败_{stamp}.docx");
+        for (var i = 2; File.Exists(candidate); i++)
+        {
+            candidate = Path.Combine(directory, $"{baseName}_排版失败_{stamp}_{i}.docx");
+        }
+        return candidate;
     }
 }

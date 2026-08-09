@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
@@ -194,20 +194,16 @@ public sealed class ValidationService
                 if (cells.Count == 0) continue;
 
                 var firstCellText = OpenXmlHelper.NormalizeText(OpenXmlHelper.提取可见文本(cells[0]));
-                // 先用更宽的正则圈定数字样文本，再分别判断对齐与格式，与 TableService 首列整数格式化行为对齐
+                // 首列仍按事务所表格样式左对齐；数字格式是否豁免改由“序号”表头决定，不再笼统豁免首列。
                 if (Regex.IsMatch(firstCellText, @"^[\d.,]+$"))
                 {
                     var justification = cells[0].Elements<Paragraph>()
                         .FirstOrDefault()?.ParagraphProperties?.Justification?.Val?.Value;
                     if (justification != JustificationValues.Left)
                     {
-                        report.AddIssue("业务", "table_first_col_alignment", $"表格首列正整数字符串未左对齐：{firstCellText}");
+                        report.AddIssue("业务", "table_first_col_alignment", $"表格首列数字未左对齐：{firstCellText}");
                     }
 
-                    if (firstCellText.Contains('.') || firstCellText.Contains(','))
-                    {
-                        report.AddIssue("业务", "table_first_col_integer_format", $"表格首列正整数字符串被错误格式化：{firstCellText}");
-                    }
                 }
             }
         }

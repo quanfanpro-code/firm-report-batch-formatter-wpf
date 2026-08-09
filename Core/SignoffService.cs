@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml.Wordprocessing;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml;
@@ -186,6 +186,15 @@ public sealed class SignoffService
 
     private void NormalizeCpaSignatureLine(Paragraph paragraph)
     {
+        // 含链接、域、修订、公式等结构时只做安全的格式覆盖，不清空重建内容。
+        if (paragraph.Descendants().Any(element =>
+                element is Hyperlink or SimpleField or FieldCode or Drawing or InsertedRun or DeletedRun
+                || element.LocalName is "sdt" or "oMath" or "oMathPara" or "object" or "pict"
+                    or "commentRangeStart" or "commentRangeEnd" or "commentReference"))
+        {
+            return;
+        }
+
         var fullText = VisibleParagraphText(paragraph);
         var match = CpaRegex.Match(fullText);
         if (!match.Success) return;

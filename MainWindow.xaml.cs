@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows.Media;
 using System.Windows.Documents;
 using System.ComponentModel;
@@ -40,7 +40,7 @@ public partial class MainWindow : FluentWindow
     {
         InitializeComponent();
         _logDoc = _logBox.Document;
-        
+
         _startButton.Content = "开始处理";
         _startButton.Appearance = Wpf.Ui.Controls.ControlAppearance.Primary;
 
@@ -155,8 +155,8 @@ public partial class MainWindow : FluentWindow
                 {
                     Dispatcher.Invoke(() =>
                     {
-                        AppendLog($"所选文件已是排版输出（_已排版），为避免重复排版已跳过：{Path.GetFileName(path)}", LogType.Warning);
-                        _statusText.Text = "已跳过：所选文件为已排版输出";
+                        AppendLog($"所选文件是本工具生成的结果或失败件，为避免重复排版已跳过：{Path.GetFileName(path)}", LogType.Warning);
+                        _statusText.Text = "已跳过：所选文件为工具输出";
                     });
                     return;
                 }

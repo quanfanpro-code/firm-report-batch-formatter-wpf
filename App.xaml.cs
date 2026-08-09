@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Windows;
 
 namespace 事务所出报告批量排版WPF版;
@@ -25,6 +25,7 @@ public partial class App : System.Windows.Application
             "程序错误",
             System.Windows.MessageBoxButton.OK,
             System.Windows.MessageBoxImage.Error);
+        Shutdown(-1);
     }
 
     private void App_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)

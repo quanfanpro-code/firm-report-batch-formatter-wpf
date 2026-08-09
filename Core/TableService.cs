@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -70,6 +70,17 @@ public sealed class TableService
         );
 
         var rows = table.Elements<TableRow>().ToList();
+        var sequenceColumns = rows.Count == 0
+            ? []
+            : rows[0].Elements<TableCell>()
+                .Select((cell, index) => new
+                {
+                    Index = index,
+                    Header = OpenXmlHelper.NormalizeText(OpenXmlHelper.提取可见文本(cell))
+                })
+                .Where(item => string.Equals(item.Header, "序号", StringComparison.Ordinal))
+                .Select(item => item.Index)
+                .ToHashSet();
         if (rows.Count > 0)
         {
             var firstRow = rows[0];
@@ -106,14 +117,15 @@ public sealed class TableService
                 tcBorders.RightBorder = BuildRightBorder(colIndex == cells.Count - 1);
                 tcPr.TableCellBorders = tcBorders;
 
-                tcPr.TableCellMargin = new TableCellMargin {
-                    TopMargin = new TopMargin { Width = "0", Type = TableWidthUnitValues.Dxa }, 
-                    BottomMargin = new BottomMargin { Width = "0", Type = TableWidthUnitValues.Dxa } 
+                tcPr.TableCellMargin = new TableCellMargin
+                {
+                    TopMargin = new TopMargin { Width = "0", Type = TableWidthUnitValues.Dxa },
+                    BottomMargin = new BottomMargin { Width = "0", Type = TableWidthUnitValues.Dxa }
                 };
                 tcPr.TableCellVerticalAlignment = new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center };
 
                 var text = OpenXmlHelper.提取可见文本(cell).Trim();
-                var formatted = FormatCellDisplayText(rowIndex, colIndex, text, out var isPureNumeric);
+                var formatted = FormatCellDisplayText(rowIndex, sequenceColumns.Contains(colIndex), text, out var isPureNumeric);
                 if (formatted is not null && 单元格可安全重写(cell))
                 {
                     ReplaceCellTextPreservingStructure(cell, formatted);
@@ -123,19 +135,29 @@ public sealed class TableService
                 {
                     OpenXmlHelper.EnsureParagraphProperties(p);
                     // 彻底清除所有可能的缩进属性，防止继承原有的奇葩缩进
-                    p.ParagraphProperties!.Indentation = new Indentation 
-                    { 
-                        Left = "0", Right = "0", FirstLine = "0", Start = "0",
-                        LeftChars = 0, RightChars = 0, FirstLineChars = 0,
-                        StartCharacters = 0, Hanging = null, HangingChars = null
+                    p.ParagraphProperties!.Indentation = new Indentation
+                    {
+                        Left = "0",
+                        Right = "0",
+                        FirstLine = "0",
+                        Start = "0",
+                        LeftChars = 0,
+                        RightChars = 0,
+                        FirstLineChars = 0,
+                        StartCharacters = 0,
+                        Hanging = null,
+                        HangingChars = null
                     };
-                    
+
                     // 行距：单倍行距，彻底覆盖原有奇葩行距
-                    p.ParagraphProperties.SpacingBetweenLines = new SpacingBetweenLines 
-                    { 
-                        Before = "0", After = "0", 
-                        BeforeLines = 0, AfterLines = 0,
-                        BeforeAutoSpacing = false, AfterAutoSpacing = false,
+                    p.ParagraphProperties.SpacingBetweenLines = new SpacingBetweenLines
+                    {
+                        Before = "0",
+                        After = "0",
+                        BeforeLines = 0,
+                        AfterLines = 0,
+                        BeforeAutoSpacing = false,
+                        AfterAutoSpacing = false,
                         LineRule = LineSpacingRuleValues.Auto,
                         Line = "240"
                     };
@@ -144,7 +166,7 @@ public sealed class TableService
                     p.ParagraphProperties.GetFirstChild<NumberingProperties>()?.Remove();
                     if (p.ParagraphProperties.OutlineLevel != null) p.ParagraphProperties.OutlineLevel.Remove();
                     if (p.ParagraphProperties.KeepNext != null) p.ParagraphProperties.KeepNext.Remove();
-                    
+
                     if (rowIndex == 0)
                     {
                         p.ParagraphProperties.Justification = new Justification { Val = JustificationValues.Center };
@@ -163,43 +185,43 @@ public sealed class TableService
                     }
 
                     foreach (var run in p.Descendants<Run>())
-                {
-                    run.RunProperties ??= new RunProperties();
-                    run.RunProperties.FontSize = new FontSize { Val = 表格字号HalfPoint };
-                    
-                    // 移除任何字体缩放，恢复默认100%
-                    var scale = run.RunProperties.GetFirstChild<CharacterScale>();
-                    if (scale != null) scale.Remove();
+                    {
+                        run.RunProperties ??= new RunProperties();
+                        run.RunProperties.FontSize = new FontSize { Val = 表格字号HalfPoint };
 
-                    var fitText = run.RunProperties.GetFirstChild<FitText>();
-                    if (fitText != null) fitText.Remove();
+                        // 移除任何字体缩放，恢复默认100%
+                        var scale = run.RunProperties.GetFirstChild<CharacterScale>();
+                        if (scale != null) scale.Remove();
 
-                    var position = run.RunProperties.GetFirstChild<Position>();
-                    if (position != null) position.Remove();
+                        var fitText = run.RunProperties.GetFirstChild<FitText>();
+                        if (fitText != null) fitText.Remove();
 
-                    var runStyle = run.RunProperties.GetFirstChild<RunStyle>();
-                    if (runStyle != null) runStyle.Remove();
+                        var position = run.RunProperties.GetFirstChild<Position>();
+                        if (position != null) position.Remove();
 
-                    // 设置字符间距紧缩，Val为负值（twips单位，-20 表示紧缩 1 磅）
-                    run.RunProperties.Spacing = new Spacing { Val = 表格字符间距紧缩Twips };
+                        var runStyle = run.RunProperties.GetFirstChild<RunStyle>();
+                        if (runStyle != null) runStyle.Remove();
 
-                    // 清除加粗、斜体、下划线
-                    run.RunProperties.Bold = new Bold { Val = false };
-                    run.RunProperties.BoldComplexScript = new BoldComplexScript { Val = false };
-                    run.RunProperties.Italic = new Italic { Val = false };
-                    run.RunProperties.ItalicComplexScript = new ItalicComplexScript { Val = false };
-                    
-                    var underline = run.RunProperties.GetFirstChild<Underline>();
-                    if (underline != null) underline.Remove();
+                        // 设置字符间距紧缩，Val为负值（twips单位，-20 表示紧缩 1 磅）
+                        run.RunProperties.Spacing = new Spacing { Val = 表格字符间距紧缩Twips };
 
-                    OpenXmlHelper.SetRunFonts(run.RunProperties, 表格中文字体, 表格西文字体);
+                        // 清除加粗、斜体、下划线
+                        run.RunProperties.Bold = new Bold { Val = false };
+                        run.RunProperties.BoldComplexScript = new BoldComplexScript { Val = false };
+                        run.RunProperties.Italic = new Italic { Val = false };
+                        run.RunProperties.ItalicComplexScript = new ItalicComplexScript { Val = false };
+
+                        var underline = run.RunProperties.GetFirstChild<Underline>();
+                        if (underline != null) underline.Remove();
+
+                        OpenXmlHelper.SetRunFonts(run.RunProperties, 表格中文字体, 表格西文字体);
+                    }
                 }
-            }
             }
         }
     }
 
-    private static string? FormatCellDisplayText(int rowIndex, int colIndex, string rawText, out bool isPureNumeric)
+    private static string? FormatCellDisplayText(int rowIndex, bool isSequenceColumn, string rawText, out bool isPureNumeric)
     {
         isPureNumeric = false;
 
@@ -207,31 +229,12 @@ public sealed class TableService
         // 表头不做数字格式化，避免"2023"这类纯数字表头被改成"2,023.00"
         if (rowIndex == 0) return null;
 
-        if (colIndex == 0 && TryFormatFirstColumnIntegerString(rawText, out var firstColumnText))
-        {
-            return firstColumnText;
-        }
+        // 表头明确为“序号”的整列保持原始显示，包括 0、前导零和带点编号。
+        if (isSequenceColumn) return null;
 
         var formatted = FormatPureNumericCell(rawText);
         isPureNumeric = formatted != null;
         return formatted;
-    }
-
-    private static bool TryFormatFirstColumnIntegerString(string rawText, out string formatted)
-    {
-        formatted = string.Empty;
-        var trimmed = rawText.Replace("\u3000", "").Trim();
-        if (trimmed.Length == 0) return false;
-        if (!Regex.IsMatch(trimmed, @"^\d+$")) return false;
-
-        if (trimmed.All(ch => ch == '0'))
-        {
-            formatted = string.Empty;
-            return true;
-        }
-
-        formatted = trimmed;
-        return true;
     }
 
     private static string? FormatPureNumericCell(string rawText)

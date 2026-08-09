@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -153,14 +153,14 @@ public sealed class ScenarioVerificationService
             return;
         }
 
-        AssertEquals(report, "表格首列00123", "00123", NormalizeText(GetVisibleText(row2Cells[0])));
+        AssertEquals(report, "表格序号列00123", "00123", NormalizeText(GetVisibleText(row2Cells[0])));
         AssertEquals(report, "表格数值1234", "1,234.00", NormalizeText(GetVisibleText(row2Cells[1])));
         AssertEquals(report, "表格拆分运行块数字", "1,234.00", NormalizeText(GetVisibleText(row3Cells[1])));
 
         var firstColJustification = row2Cells[0].Elements<Paragraph>().FirstOrDefault()?.ParagraphProperties?.Justification?.Val?.Value;
         if (firstColJustification != JustificationValues.Left)
         {
-            report.Issues.Add("表格首列正整数字符串没有左对齐");
+            report.Issues.Add("表格序号列没有按首列规则左对齐");
         }
 
         if (row4Cells[1].Elements<Paragraph>().Count() < 2)
@@ -168,7 +168,7 @@ public sealed class ScenarioVerificationService
             report.Issues.Add("复杂单元格被粗暴重写，段落结构丢失");
         }
 
-        AssertEquals(report, "表格首列零值", string.Empty, NormalizeText(GetVisibleText(row5Cells[0])));
+        AssertEquals(report, "表格序号列零值", "0", NormalizeText(GetVisibleText(row5Cells[0])));
         AssertEquals(report, "百分比格式", "12.50%", NormalizeText(GetVisibleText(row5Cells[1])));
     }
 

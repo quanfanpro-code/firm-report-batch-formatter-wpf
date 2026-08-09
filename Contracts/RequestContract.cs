@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 
 namespace FirmFormatter.OpenXml.Contracts;
 
@@ -27,6 +27,31 @@ public sealed class RequestContract
         if (!File.Exists(InputPath))
         {
             return $"输入文件不存在：{InputPath}";
+        }
+        if (!string.Equals(Path.GetExtension(InputPath), ".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            return "输入文件必须是 .docx 格式";
+        }
+        if (!string.Equals(Path.GetExtension(OutputPath), ".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            return "输出文件必须是 .docx 格式";
+        }
+        string? outputDirectory;
+        try
+        {
+            outputDirectory = Path.GetDirectoryName(Path.GetFullPath(OutputPath));
+        }
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            return $"输出路径无效：{ex.Message}";
+        }
+        if (string.IsNullOrWhiteSpace(outputDirectory) || !Directory.Exists(outputDirectory))
+        {
+            return $"输出目录不存在：{outputDirectory}";
+        }
+        if (File.Exists(OutputPath))
+        {
+            return $"输出文件已存在，拒绝覆盖：{OutputPath}";
         }
         return null;
     }

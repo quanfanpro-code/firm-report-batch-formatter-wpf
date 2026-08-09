@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -157,9 +157,8 @@ public sealed class ParagraphService
             if (headingLevel == 3)
             {
                 var normalized = H3Separator.Replace(text, "$1．", 1);
-                if (normalized != text)
+                if (normalized != text && TryNormalizeHeadingPrefix(p, text))
                 {
-                    ReplaceParagraphVisibleText(p, normalized);
                     text = normalized;
                 }
             }
@@ -170,15 +169,19 @@ public sealed class ParagraphService
                 OpenXmlHelper.物化编号到段落(word.MainDocumentPart, p);
             }
             var pPr = p.ParagraphProperties!;
-            
+
             if (headingLevel == 1)
             {
                 ClearHeadingParagraphContaminants(pPr);
                 // BeforeLines/AfterLines 存在时 Before/After 会被 Word 忽略，只保留 Lines 版本
-                pPr.SpacingBetweenLines = new SpacingBetweenLines {
-                    LineRule = LineSpacingRuleValues.Auto, Line = "360",
-                    BeforeLines = 100, AfterLines = 50,
-                    BeforeAutoSpacing = false, AfterAutoSpacing = false
+                pPr.SpacingBetweenLines = new SpacingBetweenLines
+                {
+                    LineRule = LineSpacingRuleValues.Auto,
+                    Line = "360",
+                    BeforeLines = 100,
+                    AfterLines = 50,
+                    BeforeAutoSpacing = false,
+                    AfterAutoSpacing = false
                 };
                 pPr.Indentation = CreateHeadingIndentation(1);
                 pPr.Justification = new Justification { Val = JustificationValues.Both };
@@ -189,10 +192,14 @@ public sealed class ParagraphService
             else if (headingLevel == 2)
             {
                 ClearHeadingParagraphContaminants(pPr);
-                pPr.SpacingBetweenLines = new SpacingBetweenLines {
-                    LineRule = LineSpacingRuleValues.Auto, Line = "360",
-                    BeforeLines = 50, AfterLines = 25,
-                    BeforeAutoSpacing = false, AfterAutoSpacing = false
+                pPr.SpacingBetweenLines = new SpacingBetweenLines
+                {
+                    LineRule = LineSpacingRuleValues.Auto,
+                    Line = "360",
+                    BeforeLines = 50,
+                    AfterLines = 25,
+                    BeforeAutoSpacing = false,
+                    AfterAutoSpacing = false
                 };
                 pPr.Indentation = CreateHeadingIndentation(2);
                 pPr.Justification = new Justification { Val = JustificationValues.Both };
@@ -203,10 +210,14 @@ public sealed class ParagraphService
             else if (headingLevel == 3)
             {
                 ClearHeadingParagraphContaminants(pPr);
-                pPr.SpacingBetweenLines = new SpacingBetweenLines {
-                    LineRule = LineSpacingRuleValues.Auto, Line = "360",
-                    BeforeLines = 25, AfterLines = 0,
-                    BeforeAutoSpacing = false, AfterAutoSpacing = false
+                pPr.SpacingBetweenLines = new SpacingBetweenLines
+                {
+                    LineRule = LineSpacingRuleValues.Auto,
+                    Line = "360",
+                    BeforeLines = 25,
+                    AfterLines = 0,
+                    BeforeAutoSpacing = false,
+                    AfterAutoSpacing = false
                 };
                 pPr.Indentation = CreateHeadingIndentation(3);
                 pPr.Justification = new Justification { Val = JustificationValues.Both };
@@ -221,10 +232,14 @@ public sealed class ParagraphService
                     OpenXmlHelper.物化编号到段落(word.MainDocumentPart, p);
                 }
                 ClearNormalBodyParagraphContaminants(pPr, !hasAutomaticNumbering);
-                pPr.SpacingBetweenLines = new SpacingBetweenLines {
-                    LineRule = LineSpacingRuleValues.Exact, Line = "420",
-                    BeforeLines = 0, AfterLines = 0,
-                    BeforeAutoSpacing = false, AfterAutoSpacing = false
+                pPr.SpacingBetweenLines = new SpacingBetweenLines
+                {
+                    LineRule = LineSpacingRuleValues.Exact,
+                    Line = "420",
+                    BeforeLines = 0,
+                    AfterLines = 0,
+                    BeforeAutoSpacing = false,
+                    AfterAutoSpacing = false
                 };
                 pPr.Indentation = CreateBodyIndentation();
                 pPr.Justification = new Justification { Val = JustificationValues.Both };
@@ -234,7 +249,7 @@ public sealed class ParagraphService
             foreach (var run in OpenXmlHelper.Runs(p).ToList())
             {
                 run.RunProperties ??= new RunProperties();
-                
+
                 var scale = run.RunProperties.GetFirstChild<CharacterScale>();
                 if (scale != null) scale.Remove();
                 var fitText = run.RunProperties.GetFirstChild<FitText>();
@@ -248,18 +263,18 @@ public sealed class ParagraphService
                 run.RunProperties.FontSize = new FontSize { Val = "24" };
                 run.RunProperties.FontSizeComplexScript = new FontSizeComplexScript { Val = "24" };
                 OpenXmlHelper.SetRunFonts(run.RunProperties, "宋体", "Times New Roman");
-                
+
                 if (headingLevel is 1 or 2 or 3)
                 {
                     run.RunProperties.Bold = new Bold { Val = true };
                     run.RunProperties.BoldComplexScript = new BoldComplexScript { Val = true };
                 }
-                else 
+                else
                 {
                     run.RunProperties.Bold = new Bold { Val = false };
                     run.RunProperties.BoldComplexScript = new BoldComplexScript { Val = false };
                 }
-                
+
                 run.RunProperties.Italic = new Italic { Val = false };
                 run.RunProperties.ItalicComplexScript = new ItalicComplexScript { Val = false };
                 var underline = run.RunProperties.GetFirstChild<Underline>();
@@ -454,30 +469,32 @@ public sealed class ParagraphService
         return int.TryParse(sz, out var value) ? value : null;
     }
 
-    private static void ReplaceParagraphVisibleText(Paragraph paragraph, string text)
+    private static bool TryNormalizeHeadingPrefix(Paragraph paragraph, string visibleText)
     {
-        // 段落里若含书签/批注锚点等 annotation 元素，整体清空会把它们一并删掉，保守起见跳过替换
-        if (paragraph.Descendants<BookmarkStart>().Any()
-            || paragraph.Descendants<BookmarkEnd>().Any()
-            || paragraph.Descendants<CommentRangeStart>().Any()
-            || paragraph.Descendants<CommentRangeEnd>().Any())
+        var match = H3Separator.Match(visibleText);
+        if (!match.Success) return false;
+
+        var textNodes = paragraph.Descendants<Text>().ToList();
+        if (textNodes.Count == 0) return false;
+
+        var combinedText = string.Concat(textNodes.Select(node => node.Text));
+        if (!string.Equals(combinedText, visibleText, StringComparison.Ordinal)) return false;
+
+        var replacement = match.Groups[1].Value + "．";
+        var remaining = match.Length;
+        var wroteReplacement = false;
+        foreach (var node in textNodes)
         {
-            return;
+            if (remaining <= 0) break;
+            var consumed = Math.Min(remaining, node.Text.Length);
+            var suffix = node.Text[consumed..];
+            node.Text = wroteReplacement ? suffix : replacement + suffix;
+            node.Space = SpaceProcessingModeValues.Preserve;
+            wroteReplacement = true;
+            remaining -= consumed;
         }
 
-        // 保留段落属性，避免清除后在后续 EnsureParagraphProperties 处丢失已有格式
-        var pPr = paragraph.ParagraphProperties;
-
-        // 彻底清除段落内所有子元素（包括嵌套在 hyperlink/sdt/ins 等结构里的 Run）
-        paragraph.RemoveAllChildren();
-
-        // 恢复段落属性（如果原本有的话）
-        if (pPr != null)
-        {
-            paragraph.Append(pPr);
-        }
-
-        paragraph.Append(new Run(new Text(text) { Space = SpaceProcessingModeValues.Preserve }));
+        return remaining == 0;
     }
 
     private static bool IsHeaderLineText(string text)

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Text;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -132,8 +132,8 @@ public static class MatrixSampleBuilder
             new TableGrid(new GridColumn(), new GridColumn(), new GridColumn()));
 
         table.Append(
-            Row(Cell("项目"), Cell("期末数"), Cell("备注")),
-            Row(Cell("00123"), Cell("1234"), Cell("首列正整数字符串")),
+            Row(Cell("序号"), Cell("期末数"), Cell("备注")),
+            Row(Cell("00123"), Cell("1234"), Cell("序号列前导零")),
             Row(Cell("A100"), Cell("1", "234"), Cell("拆分运行块数字")),
             Row(Cell("B200"), ComplexCellWithTabsAndMultipleParagraphs(), Cell("复杂结构应保守处理")),
             Row(Cell("0"), Cell("12.5%"), Cell("零值与百分比")));
@@ -436,7 +436,7 @@ public static class MatrixSampleBuilder
             new TableGrid(new GridColumn(), new GridColumn()));
 
         table.Append(
-            Row(Cell("编号"), Cell("说明")),
+            Row(Cell("序号"), Cell("说明")),
             Row(Cell("00123"), Cell("前导零文本必须原样保留")),
             Row(Cell("中国注册会计师：这里是表格说明"), Cell("这不是落款区，不能被落款逻辑误伤")),
             Row(Cell("1.", "这是共享编号模板里的长正文说明"), Cell("不能被误判成短标题")));
@@ -1017,7 +1017,7 @@ public static class MatrixSampleBuilder
         builder.AppendLine();
         builder.AppendLine("- `标题矩阵`：覆盖文本前缀、样式链编号、段落直接编号、仅大纲标题");
         builder.AppendLine("- `正文编号矩阵`：覆盖正文式四级、普通说明列表、样式链编号正文");
-        builder.AppendLine("- `表格复杂文本矩阵`：覆盖首列正整数字符串、拆分数字、复杂结构单元格、百分比");
+        builder.AppendLine("- `表格复杂文本矩阵`：覆盖序号列原样保留、拆分数字、复杂结构单元格、百分比");
         builder.AppendLine("- `封面矩阵`：覆盖封面关键词拆分运行块和分节");
         builder.AppendLine("- `纯封面矩阵`：覆盖低于 200 字的纯封面文档");
         builder.AppendLine("- `落款矩阵`：覆盖事务所名、城市、注册会计师、日期模板占位");

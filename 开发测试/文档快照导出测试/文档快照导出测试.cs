@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using DocumentFormat.OpenXml;
@@ -211,7 +211,7 @@ public sealed class 文档快照导出测试
 
         var service = new TableService();
         service.Apply(word, hasCover: false);
-        word.MainDocumentPart!.Document.Save();
+        word.MainDocumentPart!.Document!.Save();
 
         var table = word.MainDocumentPart.Document.Body!.Elements<Table>().Single();
         var tableProps = table.GetFirstChild<TableProperties>();
@@ -278,7 +278,7 @@ public sealed class 文档快照导出测试
 
         var service = new TableService();
         service.Apply(word, hasCover: false);
-        word.MainDocumentPart!.Document.Save();
+        word.MainDocumentPart!.Document!.Save();
 
         var table = word.MainDocumentPart.Document.Body!.Elements<Table>().Single();
         var firstRow = table.Elements<TableRow>().First();
@@ -302,7 +302,7 @@ public sealed class 文档快照导出测试
     private static void AssertTitlePitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var paragraphs = word.MainDocumentPart!.Document.Body!.Elements<Paragraph>().ToList();
+        var paragraphs = word.MainDocumentPart!.Document!.Body!.Elements<Paragraph>().ToList();
 
         var splitRunHeading = paragraphs.FirstOrDefault(p => GetVisibleText(p).Contains("拆分运行块一级标题", StringComparison.Ordinal));
         Assert.NotNull(splitRunHeading);
@@ -316,7 +316,7 @@ public sealed class 文档快照导出测试
     private static void AssertTablePitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var table = word.MainDocumentPart!.Document.Body!.Elements<Table>().FirstOrDefault();
+        var table = word.MainDocumentPart!.Document!.Body!.Elements<Table>().FirstOrDefault();
         Assert.NotNull(table);
 
         var rows = table!.Elements<TableRow>().ToList();
@@ -335,7 +335,7 @@ public sealed class 文档快照导出测试
     private static void AssertHeaderFooterPitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var body = word.MainDocumentPart!.Document.Body!;
+        var body = word.MainDocumentPart!.Document!.Body!;
         var sections = body.Descendants<SectionProperties>().ToList();
 
         Assert.True(sections.Count >= 2, "页眉页脚坑点矩阵分节不足");
@@ -352,7 +352,7 @@ public sealed class 文档快照导出测试
     private static void AssertSignoffPitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var body = word.MainDocumentPart!.Document.Body!;
+        var body = word.MainDocumentPart!.Document!.Body!;
         var paragraphs = body.Elements<Paragraph>().ToList();
 
         var cpaParagraph = paragraphs.FirstOrDefault(p => GetVisibleText(p).Contains("中国注册会计师", StringComparison.Ordinal));
@@ -367,7 +367,7 @@ public sealed class 文档快照导出测试
     private static void AssertProtectedAreaMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var body = word.MainDocumentPart!.Document.Body!;
+        var body = word.MainDocumentPart!.Document!.Body!;
         var table = body.Elements<Table>().FirstOrDefault();
         Assert.NotNull(table);
 
@@ -379,7 +379,7 @@ public sealed class 文档快照导出测试
     private static void AssertTextBoxPitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var body = word.MainDocumentPart!.Document.Body!;
+        var body = word.MainDocumentPart!.Document!.Body!;
         Assert.Contains(body.Descendants<Paragraph>(), p =>
             OpenXmlHelper.提取文本框文本(p).Contains("文本框里的话", StringComparison.Ordinal));
     }
@@ -401,7 +401,7 @@ public sealed class 文档快照导出测试
     private static void AssertMergedCellPitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var body = word.MainDocumentPart!.Document.Body!;
+        var body = word.MainDocumentPart!.Document!.Body!;
         Assert.True(body.Descendants<GridSpan>().Any(span => (span.Val?.Value ?? 1) > 1), "合并单元格坑点矩阵缺少横向合并");
         Assert.True(body.Descendants<VerticalMerge>().Any(), "合并单元格坑点矩阵缺少纵向合并");
     }
@@ -409,7 +409,7 @@ public sealed class 文档快照导出测试
     private static void AssertComplexSignoffPitfallMatrix(string path)
     {
         using var word = WordprocessingDocument.Open(path, false);
-        var body = word.MainDocumentPart!.Document.Body!;
+        var body = word.MainDocumentPart!.Document!.Body!;
         Assert.Contains(body.Descendants<Paragraph>(), p => GetVisibleText(p).Contains("四川华信", StringComparison.Ordinal) && p.Descendants<BookmarkStart>().Any());
         Assert.Contains(body.Descendants<Paragraph>(), p => GetVisibleText(p).Contains("中国·成都", StringComparison.Ordinal) && p.Descendants<Hyperlink>().Any());
     }
