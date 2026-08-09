@@ -152,15 +152,33 @@ public sealed class 安全回归测试
         Assert.True(signature.Descendants<Hyperlink>().Any(), "签字行中的超链接被删除");
     }
 
-    [Fact]
-    public void 只有序号列豁免数字格式化()
+    [Theory]
+    [InlineData("序号")]
+    [InlineData("编号")]
+    [InlineData("项目编号")]
+    [InlineData("代码")]
+    [InlineData("号码")]
+    [InlineData("年份")]
+    [InlineData("年度")]
+    [InlineData("数量")]
+    [InlineData("人数")]
+    [InlineData("户数")]
+    [InlineData("件数")]
+    [InlineData("台数")]
+    [InlineData("月份")]
+    [InlineData("季度")]
+    [InlineData("日期")]
+    [InlineData("账龄")]
+    [InlineData("期数")]
+    [InlineData("页码")]
+    public void 标识期间和数量类列必须豁免数字格式化(string header)
     {
         var table = new Table(
             new TableProperties(),
             new TableGrid(new GridColumn(), new GridColumn()),
             new TableRow(
                 new TableCell(new Paragraph(new Run(new Text("金额")))),
-                new TableCell(new Paragraph(new Run(new Text("序号"))))),
+                new TableCell(new Paragraph(new Run(new Text(header))))),
             new TableRow(
                 new TableCell(new Paragraph(new Run(new Text("1234")))),
                 new TableCell(new Paragraph(new Run(new Text("001"))))));

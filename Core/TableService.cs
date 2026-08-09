@@ -10,6 +10,12 @@ public sealed class TableService
 {
     private const uint OuterBorderSize = 6U;
     private const uint InnerBorderSize = 6U;
+    private static readonly string[] 数字格式豁免列表头关键词 =
+    [
+        "序号", "编号", "代码", "号码",
+        "年份", "年度", "月份", "季度", "日期", "账龄", "期数", "页码",
+        "数量", "人数", "户数", "件数", "台数"
+    ];
 
     // 以下为表格专用排版参数，取值应与 FirmRuleProfile（正文字号HalfPoint / 中文字体 / 西文字体）保持一致；
     // FirmRuleProfile 暂未收纳字符间距等表格参数，如需调整请两边同步修改
@@ -70,7 +76,7 @@ public sealed class TableService
         );
 
         var rows = table.Elements<TableRow>().ToList();
-        var sequenceColumns = rows.Count == 0
+        var numberFormatExemptColumns = rows.Count == 0
             ? []
             : rows[0].Elements<TableCell>()
                 .Select((cell, index) => new
@@ -78,7 +84,8 @@ public sealed class TableService
                     Index = index,
                     Header = OpenXmlHelper.NormalizeText(OpenXmlHelper.提取可见文本(cell))
                 })
-                .Where(item => string.Equals(item.Header, "序号", StringComparison.Ordinal))
+                .Where(item => 数字格式豁免列表头关键词.Any(keyword =>
+                    item.Header.Contains(keyword, StringComparison.Ordinal)))
                 .Select(item => item.Index)
                 .ToHashSet();
         if (rows.Count > 0)
@@ -125,7 +132,7 @@ public sealed class TableService
                 tcPr.TableCellVerticalAlignment = new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center };
 
                 var text = OpenXmlHelper.提取可见文本(cell).Trim();
-                var formatted = FormatCellDisplayText(rowIndex, sequenceColumns.Contains(colIndex), text, out var isPureNumeric);
+                var formatted = FormatCellDisplayText(rowIndex, numberFormatExemptColumns.Contains(colIndex), text, out var isPureNumeric);
                 if (formatted is not null && 单元格可安全重写(cell))
                 {
                     ReplaceCellTextPreservingStructure(cell, formatted);
@@ -221,7 +228,7 @@ public sealed class TableService
         }
     }
 
-    private static string? FormatCellDisplayText(int rowIndex, bool isSequenceColumn, string rawText, out bool isPureNumeric)
+    private static string? FormatCellDisplayText(int rowIndex, bool isNumberFormatExemptColumn, string rawText, out bool isPureNumeric)
     {
         isPureNumeric = false;
 
@@ -229,8 +236,8 @@ public sealed class TableService
         // 表头不做数字格式化，避免"2023"这类纯数字表头被改成"2,023.00"
         if (rowIndex == 0) return null;
 
-        // 表头明确为“序号”的整列保持原始显示，包括 0、前导零和带点编号。
-        if (isSequenceColumn) return null;
+        // 标识、期间和数量类列保持原始显示，包括 0、前导零和带点编号。
+        if (isNumberFormatExemptColumn) return null;
 
         var formatted = FormatPureNumericCell(rawText);
         isPureNumeric = formatted != null;
