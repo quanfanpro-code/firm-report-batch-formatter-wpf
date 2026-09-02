@@ -1,4 +1,4 @@
-﻿using System.Text.RegularExpressions;
+using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -455,17 +455,19 @@ public sealed class ParagraphService
     private static int ResolveHeadingLevel(MainDocumentPart? mainPart, Paragraph p, string text, bool allowStyleAndOutline = true)
     {
         var headingLevel = 0;
-        if (text.Length <= 30)
+        // 与门禁校验口径一致：按去掉空白后的文本量长度、做匹配，避免带空格的长标题在排版侧漏判、门禁侧又判不合格
+        var normalizedText = OpenXmlHelper.NormalizeText(text);
+        if (normalizedText.Length <= 30)
         {
-            if (H1.IsMatch(text)) return 1;
-            if (H2.IsMatch(text)) return 2;
-            if (H3.IsMatch(text)) return 3;
+            if (H1.IsMatch(normalizedText)) return 1;
+            if (H2.IsMatch(normalizedText)) return 2;
+            if (H3.IsMatch(normalizedText)) return 3;
         }
 
         headingLevel = OpenXmlHelper.ResolveHeadingLevelByVisibleNumbering(mainPart, p);
         if (headingLevel != 0) return headingLevel;
 
-        if (!allowStyleAndOutline || text.Length > 30) return 0;
+        if (!allowStyleAndOutline || normalizedText.Length > 30) return 0;
 
         var outlineVal = OpenXmlHelper.ResolveOutlineLevel(mainPart, p);
         if (outlineVal == 0) return 1;
