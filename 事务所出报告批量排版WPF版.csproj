@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- 任务栏/窗口图标：指向项目根目录的 程序图标.ico，编译时嵌进 exe -->
+    <ApplicationIcon>程序图标.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
