@@ -147,11 +147,7 @@ public sealed class SignoffService
             if (i == dateIndex)
             {
                 pPr.Tabs = null;
-                pPr.Indentation = new Indentation
-                {
-                    Left = "0",
-                    FirstLine = "0"
-                };
+                pPr.Indentation = CreateSignoffIndentation("0");
                 pPr.Justification = new Justification { Val = JustificationValues.Right };
             }
             else
@@ -248,10 +244,25 @@ public sealed class SignoffService
 
     private static void ApplySteppedIndentation(ParagraphProperties paragraphProperties, string firstLine)
     {
-        paragraphProperties.Indentation = new Indentation
+        // 缇值与字符单位必须成对写：Word 规则是 FirstLineChars 优先于 FirstLine，
+        // 只写缇值时样式链上残留的字符单位缩进（如 Normal 的 200）会架空缇值
+        paragraphProperties.Indentation = CreateSignoffIndentation(firstLine);
+    }
+
+    private static Indentation CreateSignoffIndentation(string firstLine)
+    {
+        return new Indentation
         {
             Left = "0",
-            FirstLine = firstLine
+            Right = "0",
+            Start = "0",
+            LeftChars = 0,
+            RightChars = 0,
+            StartCharacters = 0,
+            FirstLine = firstLine,
+            FirstLineChars = int.Parse(firstLine) / 480 * 200,
+            Hanging = null,
+            HangingChars = null
         };
     }
 

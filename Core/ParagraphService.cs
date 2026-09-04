@@ -13,6 +13,8 @@ public sealed class ParagraphService
     private static readonly Regex H3 = OpenXmlHelper.三级标题文本;
     private static readonly Regex H3Separator = new(@"^(\s*\d+)\s*[、\.．]\s*", RegexOptions.Compiled);
     private static readonly Regex DocNumberRegex = new(@"^川华信\S{0,8}[（(]\d{4}[)）]第?\d{1,6}号$", RegexOptions.Compiled);
+    // 大标题行数不写死 3 行：每行仍须独立满足"加粗且大于小四"判据，6 行是防误吞正文的安全上限
+    private const int 大标题最大行数 = 6;
     private static readonly string[] HeaderOrgKeywords = ["公司", "集团", "委员会", "事务所", "研究院", "中心", "学校", "学院", "银行"];
 
     public void Apply(WordprocessingDocument word, bool hasCover, List<Paragraph> signoffParagraphs, CancellationToken cancellationToken = default)
@@ -96,7 +98,7 @@ public sealed class ParagraphService
             }
 
             // 正文区域的状态机：处理正文标题区和正文文号区
-            if (checkingTitle && titleLinesFound < 3)
+            if (checkingTitle && titleLinesFound < 大标题最大行数)
             {
                 if (IsParagraphTitle(word.MainDocumentPart, p))
                 {
@@ -384,7 +386,8 @@ public sealed class ParagraphService
         return new Indentation
         {
             FirstLine = headingLevel == 3 ? "480" : "0",
-            FirstLineChars = headingLevel == 3 ? 200 : null,
+            // 一/二级标题必须显式写 0：留空会让样式链上的字符单位缩进穿透生效
+            FirstLineChars = headingLevel == 3 ? 200 : 0,
             Left = "0",
             Right = "0",
             Start = "0",

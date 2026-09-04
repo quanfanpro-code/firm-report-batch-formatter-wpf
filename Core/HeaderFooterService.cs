@@ -201,6 +201,13 @@ public sealed class HeaderFooterService
 
     private static void FormatExistingHeaders(MainDocumentPart main, SectionProperties sectPr, FirmRuleProfile ruleProfile)
     {
+        // 版心宽 = 页宽 − 左右边距（EnsurePageLayout 已兜底写值），横版分节同样适用
+        var pgSz = sectPr.GetFirstChild<PageSize>();
+        var pgMar = sectPr.GetFirstChild<PageMargin>();
+        var contentWidthTwips = (int)((pgSz?.Width?.Value ?? PortraitWidth)
+            - (pgMar?.Left?.Value ?? (uint)ruleProfile.页边距左Twips)
+            - (pgMar?.Right?.Value ?? (uint)ruleProfile.页边距右Twips));
+
         foreach (var hr in sectPr.Elements<HeaderReference>())
         {
             if (hr.Id?.Value is null) continue;
@@ -215,6 +222,7 @@ public sealed class HeaderFooterService
             foreach (var p in header.Descendants<Paragraph>())
             {
                 ResetHeaderParagraphProperties(p);
+                规范化页眉内容(p, contentWidthTwips);
 
                 foreach (var run in p.Descendants<Run>())
                 {
@@ -222,6 +230,60 @@ public sealed class HeaderFooterService
                 }
             }
             header.Save();
+        }
+    }
+
+    // "文字 + 连续 2 个及以上空格（含全角）+ 文字"是用空格凑右对齐的手工排版，
+    // 空格宽度随字号变化，统一字号后必然错位，必须换成右对齐定位点
+    private static readonly System.Text.RegularExpressions.Regex 页眉填充正则 =
+        new(@"^(?<left>\S(?:.*?\S)?)[ 　]{2,}(?<right>\S.*)$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private static void 规范化页眉内容(Paragraph paragraph, int contentWidthTwips)
+    {
+        // 含域、图片、书签、修订等复杂结构的段落不重建，避免破坏内容
+        if (paragraph.Descendants().Any(element =>
+                element is Drawing or SimpleField or FieldCode or Hyperlink
+                    or BookmarkStart or BookmarkEnd or InsertedRun or DeletedRun
+                    or Break or Vanish or WebHidden or FootnoteReference or EndnoteReference
+                || element.LocalName is "sdt" or "oMath" or "oMathPara" or "object" or "pict"
+                    or "commentRangeStart" or "commentRangeEnd" or "commentReference"))
+        {
+            return;
+        }
+
+        var fullText = string.Concat(paragraph.Descendants<Text>().Select(t => t.Text));
+        var trimmed = fullText.TrimStart(' ', '　');
+
+        // 行首制表符 = 第一个非空白文字之前出现的 TabChar（规范要求页眉左对齐顶格）
+        var hasLeadingTab = false;
+        foreach (var element in paragraph.Descendants())
+        {
+            if (element is TabChar) hasLeadingTab = true;
+            else if (element is Text t && t.Text.Any(c => c is not ' ' and not '　')) break;
+        }
+
+        var match = 页眉填充正则.Match(trimmed);
+        if (!match.Success && !hasLeadingTab && trimmed.Length == fullText.Length) return;
+
+        // 重建内容（守卫已排除复杂结构，这里只剩普通 run）
+        foreach (var child in paragraph.ChildElements.Where(c => c is not ParagraphProperties).ToList())
+        {
+            child.Remove();
+        }
+
+        if (match.Success)
+        {
+            paragraph.AppendChild(new Run(new Text(match.Groups["left"].Value) { Space = SpaceProcessingModeValues.Preserve }));
+            paragraph.AppendChild(new Run(new TabChar(), new Text(match.Groups["right"].Value.TrimEnd(' ', '　')) { Space = SpaceProcessingModeValues.Preserve }));
+            paragraph.ParagraphProperties!.Tabs = new Tabs(new TabStop
+            {
+                Val = TabStopValues.Right,
+                Position = contentWidthTwips
+            });
+        }
+        else
+        {
+            paragraph.AppendChild(new Run(new Text(trimmed) { Space = SpaceProcessingModeValues.Preserve }));
         }
     }
 
