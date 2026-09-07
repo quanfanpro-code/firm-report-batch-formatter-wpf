@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
@@ -129,19 +129,33 @@ public sealed class ValidationService
         var main = word.MainDocumentPart;
         if (main == null) return;
 
-        ValidateHeadingSemantics(main, body, report);
-        ValidateAutomaticBodyNumbering(main, body, report);
-        ValidateTableRules(body, report);
+        // 落款区识别一次，供标题语义检查（豁免落款段落）与落款检查共用；
+        // 纯封面文档排版侧不做任何段落/表格处理，门禁的对应检查同步跳过，避免"排版不修、门禁必拦"的死锁
+        var signoffParagraphs = isPureCoverDocument
+            ? []
+            : new SignoffService().IdentifySignoffParagraphs(word, hasCover);
+        var signoffSet = signoffParagraphs.Count > 0 ? new HashSet<Paragraph>(signoffParagraphs) : null;
+
+        if (!isPureCoverDocument)
+        {
+            ValidateHeadingSemantics(main, body, signoffSet, report);
+            ValidateTableRules(body, report);
+        }
         ValidateSectionMargins(body, hasCover, isPureCoverDocument, report, _ruleProfile);
         ValidatePageFooters(word, body, hasCover, isPureCoverDocument, report);
-        ValidateSignoff(word, hasCover, report);
+        ValidateSignoff(signoffParagraphs, report);
     }
 
-    private static void ValidateHeadingSemantics(MainDocumentPart mainPart, Body body, ValidationReportContract report)
+    private static void ValidateHeadingSemantics(MainDocumentPart mainPart, Body body, HashSet<Paragraph>? signoffSet, ValidationReportContract report)
     {
         foreach (var paragraph in body.Descendants<Paragraph>())
         {
-            if (paragraph.Ancestors<Table>().Any()) continue;
+            // 处理范围必须与排版侧 ParagraphService 严格对齐：
+            // 表格、文本框、目录、落款区段落排版侧一概不改，这里若再按标题语义拦截，
+            // 就会复现"三级标题分隔符未统一"式的排版-门禁死锁
+            if (paragraph.Ancestors<Table>().Any() || paragraph.Ancestors<TextBoxContent>().Any()) continue;
+            if (OpenXmlHelper.是目录段落(paragraph)) continue;
+            if (signoffSet != null && signoffSet.Contains(paragraph)) continue;
 
             var text = OpenXmlHelper.NormalizeText(OpenXmlHelper.ParagraphText(paragraph));
             if (string.IsNullOrWhiteSpace(text)) continue;
@@ -155,31 +169,6 @@ public sealed class ValidationService
                 && Regex.IsMatch(text, @"^\d{1,3}[、\.]"))
             {
                 report.AddIssue("业务", "h3_separator_not_normalized", $"三级标题分隔符未统一为全角点：{text}");
-            }
-        }
-    }
-
-    private static void ValidateAutomaticBodyNumbering(MainDocumentPart mainPart, Body body, ValidationReportContract report)
-    {
-        foreach (var paragraph in body.Descendants<Paragraph>())
-        {
-            if (paragraph.Ancestors<Table>().Any()) continue;
-
-            var text = OpenXmlHelper.NormalizeText(OpenXmlHelper.ParagraphText(paragraph));
-            if (string.IsNullOrWhiteSpace(text)) continue;
-
-            if (OpenXmlHelper.ResolveHeadingLevelForValidation(mainPart, paragraph) != 0) continue;
-            if (!OpenXmlHelper.段落存在编号(mainPart, paragraph)) continue;
-
-            if (OpenXmlHelper.是正文式四级(mainPart, paragraph))
-            {
-                continue;
-            }
-
-            var source = OpenXmlHelper.Resolve编号来源(mainPart, paragraph);
-            if (source == "无")
-            {
-                report.AddIssue("业务", "body_numbering_missing", $"正文自动编号已丢失：{text}");
             }
         }
     }
@@ -271,13 +260,10 @@ public sealed class ValidationService
         }
     }
 
-    private void ValidateSignoff(
-        WordprocessingDocument word,
-        bool hasCover,
+    private static void ValidateSignoff(
+        List<Paragraph> signoffParagraphs,
         ValidationReportContract report)
     {
-        var signoffService = new SignoffService();
-        var signoffParagraphs = signoffService.IdentifySignoffParagraphs(word, hasCover);
         if (signoffParagraphs.Count == 0) return;
 
         var cpaCount = signoffParagraphs.Count(paragraph =>

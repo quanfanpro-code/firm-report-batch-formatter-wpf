@@ -76,7 +76,7 @@ public sealed class ParagraphService
         {
             var text = OpenXmlHelper.ParagraphText(p).Trim();
 
-            if (IsTableOfContentsParagraph(p))
+            if (OpenXmlHelper.是目录段落(p))
             {
                 inCoverZone = false;
                 return;
@@ -163,13 +163,10 @@ public sealed class ParagraphService
             var headingLevel = ResolveHeadingLevel(word.MainDocumentPart, p, text);
             var hasAutomaticNumbering = headingLevel == 0 && OpenXmlHelper.段落存在编号(word.MainDocumentPart, p);
 
-            if (headingLevel == 3)
+            if (headingLevel == 3 && TryNormalizeHeadingPrefix(p))
             {
-                var normalized = H3Separator.Replace(text, "$1．", 1);
-                if (normalized != text && TryNormalizeHeadingPrefix(p, text))
-                {
-                    text = normalized;
-                }
+                // 替换在 Text 节点上完成，重新提取保证 text 与文档实际内容一致
+                text = OpenXmlHelper.ParagraphText(p).Trim();
             }
 
             OpenXmlHelper.EnsureParagraphProperties(p);
@@ -320,14 +317,6 @@ public sealed class ParagraphService
             }
 
         }
-    }
-
-    private static bool IsTableOfContentsParagraph(Paragraph paragraph)
-    {
-        var styleId = paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
-        return !string.IsNullOrWhiteSpace(styleId)
-            && (styleId.StartsWith("TOC", StringComparison.OrdinalIgnoreCase)
-                || styleId.StartsWith("目录", StringComparison.Ordinal));
     }
 
     private static bool HasSectionBreak(Paragraph p)
@@ -495,16 +484,16 @@ public sealed class ParagraphService
         return int.TryParse(sz, out var value) ? value : null;
     }
 
-    private static bool TryNormalizeHeadingPrefix(Paragraph paragraph, string visibleText)
+    private static bool TryNormalizeHeadingPrefix(Paragraph paragraph)
     {
-        var match = H3Separator.Match(visibleText);
-        if (!match.Success) return false;
-
         var textNodes = paragraph.Descendants<Text>().ToList();
         if (textNodes.Count == 0) return false;
 
+        // 直接在 Text 节点拼接文本上匹配替换：段首尾空格、段中换行/制表符不再导致漏改，
+        // 避免排版侧放弃替换、门禁侧又按去空白口径拦截的自相矛盾（此前用 Trim 后文本做严格相等校验）
         var combinedText = string.Concat(textNodes.Select(node => node.Text));
-        if (!string.Equals(combinedText, visibleText, StringComparison.Ordinal)) return false;
+        var match = H3Separator.Match(combinedText);
+        if (!match.Success) return false;
 
         var replacement = match.Groups[1].Value + "．";
         var remaining = match.Length;

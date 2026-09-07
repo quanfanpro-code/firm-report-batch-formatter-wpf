@@ -1,4 +1,4 @@
-﻿using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
@@ -210,11 +210,18 @@ public sealed class HeaderFooterService
 
         foreach (var hr in sectPr.Elements<HeaderReference>())
         {
-            if (hr.Id?.Value is null) continue;
+            // 死引用（缺关系 Id 或指向不存在的部件）既无内容可排版，又会触发门禁
+            // header_ref_missing_id/header_ref_broken 拦截，甚至让 OpenXmlValidator 崩溃，直接清理
+            if (hr.Id?.Value is null)
+            {
+                hr.Remove();
+                continue;
+            }
+
             HeaderPart? headerPart;
             // 仅容忍关系 ID 无效这一预期异常，其余异常应暴露而不是静默跳过
             try { headerPart = main.GetPartById(hr.Id.Value) as HeaderPart; }
-            catch (ArgumentOutOfRangeException) { continue; }
+            catch (ArgumentOutOfRangeException) { hr.Remove(); continue; }
             if (headerPart is null) continue;
             var header = headerPart.Header;
             if (header is null) continue;

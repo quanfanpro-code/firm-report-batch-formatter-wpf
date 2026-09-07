@@ -106,6 +106,15 @@ public static class OpenXmlHelper
         return 0;
     }
 
+    // 目录段落判定（TOC*/目录* 样式）供排版侧与门禁侧共用，避免两处口径漂移
+    internal static bool 是目录段落(Paragraph paragraph)
+    {
+        var styleId = paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value;
+        return !string.IsNullOrWhiteSpace(styleId)
+            && (styleId.StartsWith("TOC", StringComparison.OrdinalIgnoreCase)
+                || styleId.StartsWith("目录", StringComparison.Ordinal));
+    }
+
     public static int ResolveHeadingLevelForValidation(MainDocumentPart? mainPart, Paragraph p)
     {
         var text = NormalizeText(ParagraphText(p));
