@@ -130,7 +130,8 @@ public sealed class DocumentPipeline
 
             _emit(new LogEventContract("info", "validation", "validation_done", $"统一门禁通过（正文可见字数：{gateResult.ValidationReport?.Facts.GetValueOrDefault("可见正文字符数", "未知")}）"));
 
-            // OpenXML 在 Dispose 时才真正 flush 所有 part 落盘。flush 失败必须进入外层 catch 走删半成品流程，
+            request.CancellationToken.ThrowIfCancellationRequested();
+            // OpenXML 在 Dispose 时才真正 flush 所有 part 落盘。flush 失败必须保留失败件，
             // 绝不能用空 catch 吞掉，否则会静默产出损坏 docx 却返回 Success=true
             word.Dispose();
             word = null;
@@ -138,14 +139,11 @@ public sealed class DocumentPipeline
             // Dispose 后重新打开最终落盘文件，确保包结构确实可读；schema 兼容性差异仍按用户要求只警告。
             using (var reopened = WordprocessingDocument.Open(临时输出路径, false))
             {
-                _ = new ValidationService().Validate(
-                    reopened,
-                    context.HasCover,
-                    context.IsPureCoverDocument,
-                    request.ScenarioName,
-                    throwOnFailure: true);
+                gateResult = gateCheck.Run(reopened, request, context);
+                if (!gateResult.Success) throw new InvalidDataException(BuildGateFailureMessage(gateResult));
             }
 
+            request.CancellationToken.ThrowIfCancellationRequested();
             File.Move(临时输出路径, request.OutputPath, false);
             临时输出路径 = null;
 

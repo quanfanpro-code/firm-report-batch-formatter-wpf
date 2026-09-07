@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
@@ -57,14 +57,11 @@ public sealed class ValidationService
             report.AddIssue("结构", "empty_body", "正文为空");
         }
 
-        var validator = new OpenXmlValidator(FileFormatVersions.Office2019);
-        foreach (var error in validator.Validate(word).Take(50))
-        {
-            // OpenXmlValidator 的 schema 排序差异不阻断流水线，只记警告
-            report.AddWarning("结构", "openxml_validator", $"{error.Path?.XPath ?? "未知路径"}：{error.Description}");
-        }
-
         var bodySectionProperties = body.Elements<SectionProperties>().ToList();
+        if (bodySectionProperties.Count == 0)
+        {
+            report.AddIssue("结构", "missing_final_section", "输出缺少末节属性，无法确认页面设置和页码");
+        }
         if (bodySectionProperties.Count > 1)
         {
             report.AddIssue("结构", "multiple_body_sectpr", "Body 下存在多个直属 SectionProperties");
@@ -97,10 +94,13 @@ public sealed class ValidationService
                 }
 
                 // 用 Parts 探测代替 GetPartById 裸 catch，避免把无关异常也归因为引用损坏
-                if (!main.Parts.Any(part => part.RelationshipId == headerReference.Id.Value))
+                var part = main.Parts.FirstOrDefault(part => part.RelationshipId == headerReference.Id.Value).OpenXmlPart;
+                if (part == null)
                 {
                     report.AddIssue("结构", "header_ref_broken", $"页眉引用损坏：{headerReference.Id.Value}");
                 }
+                else if (part is not HeaderPart)
+                    report.AddIssue("结构", "header_ref_wrong_type", $"页眉引用指向了其他类型部件：{headerReference.Id.Value}");
             }
 
             foreach (var footerReference in section.Elements<FooterReference>())
@@ -111,11 +111,23 @@ public sealed class ValidationService
                     continue;
                 }
 
-                if (!main.Parts.Any(part => part.RelationshipId == footerReference.Id.Value))
+                var part = main.Parts.FirstOrDefault(part => part.RelationshipId == footerReference.Id.Value).OpenXmlPart;
+                if (part == null)
                 {
                     report.AddIssue("结构", "footer_ref_broken", $"页脚引用损坏：{footerReference.Id.Value}");
                 }
+                else if (part is not FooterPart)
+                    report.AddIssue("结构", "footer_ref_wrong_type", $"页脚引用指向了其他类型部件：{footerReference.Id.Value}");
             }
+        }
+
+        // 先报告关系损坏；SDK 在缺失关系上可能抛空引用异常，不能让它吞掉明确的问题清单。
+        if (report.Issues.Any(issue => issue.Layer == "结构")) return;
+        var validator = new OpenXmlValidator(FileFormatVersions.Office2019);
+        foreach (var error in validator.Validate(word).Take(50))
+        {
+            // 保留既有策略：兼容性差异只警告，不当作业务合格的证据。
+            report.AddWarning("结构", "openxml_validator", $"{error.Path?.XPath ?? "未知路径"}：{error.Description}");
         }
     }
 
@@ -138,26 +150,36 @@ public sealed class ValidationService
 
         if (!isPureCoverDocument)
         {
-            ValidateHeadingSemantics(main, body, signoffSet, report);
-            ValidateTableRules(body, report);
+            ValidateHeadingSemantics(main, body, hasCover, signoffSet, report);
+            ValidateTableRules(body, hasCover, report);
         }
         ValidateSectionMargins(body, hasCover, isPureCoverDocument, report, _ruleProfile);
         ValidatePageFooters(word, body, hasCover, isPureCoverDocument, report);
         ValidateSignoff(signoffParagraphs, report);
     }
 
-    private static void ValidateHeadingSemantics(MainDocumentPart mainPart, Body body, HashSet<Paragraph>? signoffSet, ValidationReportContract report)
+    private static void ValidateHeadingSemantics(MainDocumentPart mainPart, Body body, bool hasCover, HashSet<Paragraph>? signoffSet, ValidationReportContract report)
     {
+        var inCoverZone = hasCover;
         foreach (var paragraph in body.Descendants<Paragraph>())
         {
             // 处理范围必须与排版侧 ParagraphService 严格对齐：
             // 表格、文本框、目录、落款区段落排版侧一概不改，这里若再按标题语义拦截，
             // 就会复现"三级标题分隔符未统一"式的排版-门禁死锁
             if (paragraph.Ancestors<Table>().Any() || paragraph.Ancestors<TextBoxContent>().Any()) continue;
-            if (OpenXmlHelper.是目录段落(paragraph)) continue;
+            if (OpenXmlHelper.是目录段落(paragraph)) { inCoverZone = false; continue; }
             if (signoffSet != null && signoffSet.Contains(paragraph)) continue;
 
             var text = OpenXmlHelper.NormalizeText(OpenXmlHelper.ParagraphText(paragraph));
+            if (inCoverZone)
+            {
+                if (ParagraphService.ShouldExitCoverZone(mainPart, paragraph, text)) inCoverZone = false;
+                else
+                {
+                    if (paragraph.ParagraphProperties?.GetFirstChild<SectionProperties>() != null) inCoverZone = false;
+                    continue;
+                }
+            }
             if (string.IsNullOrWhiteSpace(text)) continue;
 
             var level = OpenXmlHelper.ResolveHeadingLevelForValidation(mainPart, paragraph);
@@ -170,18 +192,39 @@ public sealed class ValidationService
             {
                 report.AddIssue("业务", "h3_separator_not_normalized", $"三级标题分隔符未统一为全角点：{text}");
             }
+
+            var properties = paragraph.ParagraphProperties;
+            if (properties?.SpacingBetweenLines?.Line?.Value != "360"
+                || properties.SpacingBetweenLines.LineRule?.Value != LineSpacingRuleValues.Auto
+                || properties.Indentation?.FirstLineChars?.Value != (level == 3 ? 200 : 0)
+                || properties.OutlineLevel?.Val?.Value != level - 1)
+                report.AddIssue("业务", "heading_layout", $"标题行距、缩进或层级不合格：{text}");
+            if (OpenXmlHelper.Runs(paragraph).Where(run => !string.IsNullOrWhiteSpace(OpenXmlHelper.提取可见文本(run)))
+                .Any(run => run.RunProperties?.FontSize?.Val?.Value != "24"
+                    || run.RunProperties?.Bold is not { } bold || !(bold.Val?.Value ?? true)))
+                report.AddIssue("业务", "heading_font", $"标题字号或加粗不合格：{text}");
         }
     }
 
-    private static void ValidateTableRules(Body body, ValidationReportContract report)
+    private static void ValidateTableRules(Body body, bool hasCover, ValidationReportContract report)
     {
-        foreach (var table in body.Elements<Table>())
+        foreach (var table in TableService.收集待排版表格(body, hasCover))
         {
             var rows = table.Elements<TableRow>().ToList();
             for (var rowIndex = TableService.GetHeaderRowCount(rows); rowIndex < rows.Count; rowIndex++)
             {
                 var cells = rows[rowIndex].Elements<TableCell>().ToList();
                 if (cells.Count == 0) continue;
+
+                foreach (var cell in cells)
+                foreach (var paragraph in cell.Elements<Paragraph>())
+                {
+                    if (OpenXmlHelper.Runs(paragraph).Any(run =>
+                        !string.IsNullOrWhiteSpace(OpenXmlHelper.提取可见文本(run))
+                        && !run.Descendants<FootnoteReference>().Any() && !run.Descendants<EndnoteReference>().Any()
+                        && run.RunProperties?.FontSize?.Val?.Value != "24"))
+                        report.AddIssue("业务", "table_font_size", $"表格第 {rowIndex + 1} 行文字未使用小四字号");
+                }
 
                 var firstCellText = OpenXmlHelper.NormalizeText(OpenXmlHelper.提取可见文本(cells[0]));
                 // 首列仍按事务所表格样式左对齐；数字格式是否豁免改由“序号”表头决定，不再笼统豁免首列。
@@ -205,6 +248,14 @@ public sealed class ValidationService
         for (var sectionIndex = 0; sectionIndex < sections.Count; sectionIndex++)
         {
             var section = sections[sectionIndex];
+            if (!isPureCoverDocument)
+            {
+                var size = section.GetFirstChild<PageSize>();
+                var landscape = size?.Orient?.Value == PageOrientationValues.Landscape;
+                if (size?.Width?.Value != (landscape ? 16838U : 11906U)
+                    || size.Height?.Value != (landscape ? 11906U : 16838U))
+                    report.AddIssue("业务", "page_size", $"第 {sectionIndex + 1} 节未使用方向一致的 A4 页面");
+            }
             var pageMargin = section.GetFirstChild<PageMargin>();
             if (pageMargin == null)
             {
@@ -257,7 +308,47 @@ public sealed class ValidationService
             {
                 report.AddIssue("业务", "even_page_footer_missing", $"正文第 {index + 1} 节缺少偶数页页码页脚");
             }
+            if (sections[index].GetFirstChild<TitlePage>() is { } titlePage
+                && (titlePage.Val?.Value ?? true) && !footerTypes.Contains(HeaderFooterValues.First))
+                report.AddIssue("业务", "first_page_footer_missing", $"正文第 {index + 1} 节缺少首页页码页脚");
+
+            foreach (var reference in sections[index].Elements<FooterReference>())
+            {
+                var footer = word.MainDocumentPart!.Parts
+                    .FirstOrDefault(part => part.RelationshipId == reference.Id?.Value).OpenXmlPart as FooterPart;
+                if (footer?.Footer == null) continue; // 引用损坏由结构层报告。
+                var hasPage = footer.Footer.Descendants<SimpleField>()
+                    .Any(field => Regex.IsMatch(field.Instruction?.Value ?? "", @"^\s*PAGE(?:\s|$)", RegexOptions.IgnoreCase))
+                    || footer.Footer.Descendants<Paragraph>().Any(包含完整页码域);
+                if (!hasPage) report.AddIssue("业务", "page_field_missing", $"正文第 {index + 1} 节页脚缺少完整页码域");
+            }
         }
+    }
+
+    private static bool 包含完整页码域(Paragraph paragraph)
+    {
+        var fields = new Stack<(StringBuilder Code, bool InResult)>();
+        var hasPage = false;
+        foreach (var element in paragraph.Descendants())
+        {
+            if (element is FieldChar field)
+            {
+                if (field.FieldCharType?.Value == FieldCharValues.Begin) fields.Push((new StringBuilder(), false));
+                else if (field.FieldCharType?.Value == FieldCharValues.Separate && fields.Count > 0)
+                {
+                    var current = fields.Pop();
+                    fields.Push((current.Code, true));
+                }
+                else if (field.FieldCharType?.Value == FieldCharValues.End)
+                {
+                    if (fields.Count == 0) return false;
+                    hasPage |= Regex.IsMatch(fields.Pop().Code.ToString(), @"^\s*PAGE(?:\s|$)", RegexOptions.IgnoreCase);
+                }
+            }
+            else if (element is FieldCode code && fields.Count > 0 && !fields.Peek().InResult)
+                fields.Peek().Code.Append(code.Text);
+        }
+        return hasPage && fields.Count == 0;
     }
 
     private static void ValidateSignoff(
@@ -271,6 +362,18 @@ public sealed class ValidationService
         if (cpaCount < 2)
         {
             report.AddIssue("业务", "signoff_cpa_count", "落款区内注册会计师行少于 2 行");
+        }
+        for (var index = 0; index < signoffParagraphs.Count; index++)
+        {
+            var paragraph = signoffParagraphs[index];
+            var properties = paragraph.ParagraphProperties;
+            var isDate = index == signoffParagraphs.Count - 1;
+            var expectedIndent = !isDate && index < 3 ? index * 200 : 0;
+            if (properties?.Indentation?.FirstLineChars?.Value != expectedIndent
+                || properties.SpacingBetweenLines?.Line?.Value != FirmRuleProfile.Default.落款行距Twips
+                || properties.SpacingBetweenLines.LineRule?.Value != LineSpacingRuleValues.Exact
+                || properties.Justification?.Val?.Value != (isDate ? JustificationValues.Right : JustificationValues.Left))
+                report.AddIssue("业务", "signoff_layout", $"落款第 {index + 1} 段缩进、行距或对齐不合格");
         }
     }
 

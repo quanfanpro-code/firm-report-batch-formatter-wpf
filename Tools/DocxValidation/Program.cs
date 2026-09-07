@@ -1,4 +1,4 @@
-using DocumentFormat.OpenXml.Packaging;
+﻿using DocumentFormat.OpenXml.Packaging;
 using FirmFormatter.OpenXml.Contracts;
 using FirmFormatter.OpenXml.Core;
 using DocxValidationTool;
@@ -53,7 +53,7 @@ static int ExportSnapshot(string[] args)
     }
 
     var json = new DocumentSnapshotService().ExportAsJson(args[1]);
-    File.WriteAllText(args[2], json);
+    WriteNewJson(args[2], json);
     Console.WriteLine($"RESULT Snapshot={args[2]}");
     return 0;
 }
@@ -73,7 +73,7 @@ static int CompareSnapshot(string[] args)
     {
         WriteIndented = true
     });
-    File.WriteAllText(args[3], json);
+    WriteNewJson(args[3], json);
     Console.WriteLine($"RESULT DiffSnapshot={args[3]}");
     return 0;
 }
@@ -101,6 +101,15 @@ static int RunPipeline(string[] args)
     return result.Success ? 0 : 1;
 }
 
+static void WriteNewJson(string path, string json)
+{
+    if (!string.Equals(Path.GetExtension(path), ".json", StringComparison.OrdinalIgnoreCase))
+        throw new ArgumentException("快照或差异结果必须保存为新的 .json 文件，不能覆盖原文档");
+    using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+    using var writer = new StreamWriter(stream, new System.Text.UTF8Encoding(true));
+    writer.Write(json);
+}
+
 static int VerifyDoc(string[] args)
 {
     if (args.Length < 3)
@@ -115,12 +124,15 @@ static int VerifyDoc(string[] args)
         InputPath = args[1],
         OutputPath = args[1],
         ScenarioName = args[2],
-        RunSource = "验证命令"
+        RunSource = "验证命令",
+        RequireScenarioVerification = true
     };
     var context = new FirmDocumentClassifier().BuildContext(word, request);
-    var report = new ScenarioVerificationService().Verify(word, context);
-    PrintScenarioVerificationReport(report);
-    return report.Success ? 0 : 1;
+    var result = new GateCheckService().Run(word, request, context);
+    if (result.ScenarioReport != null) PrintScenarioVerificationReport(result.ScenarioReport);
+    foreach (var issue in result.BlockingIssues) Console.WriteLine($"ISSUE {issue.Code}：{issue.Message}");
+    Console.WriteLine($"RESULT GateSuccess={result.Success} BeforeAfterComparison=False");
+    return result.Success ? 0 : 1;
 }
 
 static int RunMatrix(string[] args)

@@ -1,4 +1,4 @@
-using System.Text.RegularExpressions;
+﻿using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -324,7 +324,7 @@ public sealed class ParagraphService
         return p.ParagraphProperties?.GetFirstChild<SectionProperties>() is not null;
     }
 
-    private static bool ShouldExitCoverZone(MainDocumentPart? mainPart, Paragraph paragraph, string text)
+    internal static bool ShouldExitCoverZone(MainDocumentPart? mainPart, Paragraph paragraph, string text)
     {
         var normalized = OpenXmlHelper.NormalizeText(text);
         if (string.IsNullOrEmpty(normalized))
@@ -410,7 +410,7 @@ public sealed class ParagraphService
         var paragraphText = OpenXmlHelper.ParagraphText(p).Trim();
         if (ResolveHeadingLevel(mainPart, p, paragraphText, false) != 0) return false;
 
-        var runs = p.Descendants<Run>().Where(r => !string.IsNullOrWhiteSpace(OpenXmlHelper.提取可见文本(r))).ToList();
+        var runs = OpenXmlHelper.Runs(p).Where(r => !string.IsNullOrWhiteSpace(OpenXmlHelper.提取可见文本(r))).ToList();
         if (!runs.Any()) return false;
 
         var pPr = p.ParagraphProperties;
@@ -486,7 +486,9 @@ public sealed class ParagraphService
 
     private static bool TryNormalizeHeadingPrefix(Paragraph paragraph)
     {
-        var textNodes = paragraph.Descendants<Text>().ToList();
+        var textNodes = OpenXmlHelper.Runs(paragraph)
+            .Where(run => !OpenXmlHelper.是隐藏运行块(run))
+            .SelectMany(run => run.Elements<Text>()).ToList();
         if (textNodes.Count == 0) return false;
 
         // 直接在 Text 节点拼接文本上匹配替换：段首尾空格、段中换行/制表符不再导致漏改，

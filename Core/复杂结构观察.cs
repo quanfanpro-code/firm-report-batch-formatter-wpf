@@ -16,6 +16,9 @@ public sealed class 复杂结构观察结果
     public required int 书签数 { get; init; }
     public required int 超链接数 { get; init; }
     public required int 域代码数 { get; init; }
+    public int 脚注引用数 { get; init; }
+    public int 尾注引用数 { get; init; }
+    public int 图形数 { get; init; }
     public required int 落款复杂结构数 { get; init; }
     public required string 文本框摘要 { get; init; }
     public required string 脚注尾注摘要 { get; init; }
@@ -34,9 +37,8 @@ public static class 复杂结构观察服务
         var body = word.MainDocumentPart?.Document?.Body
             ?? throw new InvalidOperationException("文档缺少正文");
 
-        var textBoxes = body.Descendants<Paragraph>()
-            .Select(paragraph => OpenXmlHelper.提取文本框文本(paragraph))
-            .Where(text => !string.IsNullOrWhiteSpace(text))
+        var textBoxes = body.Descendants().Where(element => element.LocalName == "txbxContent")
+            .Select(OpenXmlHelper.提取文本框文本)
             .ToList();
         var footnotes = 收集脚注文字(word.MainDocumentPart?.FootnotesPart);
         var endnotes = 收集尾注文字(word.MainDocumentPart?.EndnotesPart);
@@ -52,7 +54,10 @@ public static class 复杂结构观察服务
             纵向合并数 = body.Descendants<VerticalMerge>().Count(),
             书签数 = body.Descendants<BookmarkStart>().Count(),
             超链接数 = body.Descendants<Hyperlink>().Count(),
-            域代码数 = body.Descendants<FieldCode>().Count(),
+            域代码数 = body.Descendants<FieldCode>().Count() + body.Descendants<SimpleField>().Count(),
+            脚注引用数 = body.Descendants<FootnoteReference>().Count(),
+            尾注引用数 = body.Descendants<EndnoteReference>().Count(),
+            图形数 = body.Descendants<Drawing>().Count() + body.Descendants<Picture>().Count(),
             落款复杂结构数 = 收集落款复杂结构数(signoffParagraphs),
             文本框摘要 = 拼接摘要(textBoxes),
             脚注尾注摘要 = 拼接摘要(footnotes.Concat(endnotes)),
@@ -69,9 +74,8 @@ public static class 复杂结构观察服务
         }
 
         return footnotesPart.Footnotes.Elements<Footnote>()
-            .Where(note => note.Type == null && (note.Id?.Value ?? 0) >= 0)
+            .Where(note => (note.Type == null || note.Type.Value == FootnoteEndnoteValues.Normal) && (note.Id?.Value ?? 0) >= 0)
             .Select(OpenXmlHelper.提取可见文本)
-            .Where(text => !string.IsNullOrWhiteSpace(text))
             .ToList();
     }
 
@@ -83,9 +87,8 @@ public static class 复杂结构观察服务
         }
 
         return endnotesPart.Endnotes.Elements<Endnote>()
-            .Where(note => note.Type == null && (note.Id?.Value ?? 0) >= 0)
+            .Where(note => (note.Type == null || note.Type.Value == FootnoteEndnoteValues.Normal) && (note.Id?.Value ?? 0) >= 0)
             .Select(OpenXmlHelper.提取可见文本)
-            .Where(text => !string.IsNullOrWhiteSpace(text))
             .ToList();
     }
 

@@ -31,11 +31,20 @@ public sealed class TableService
         var body = word.MainDocumentPart?.Document?.Body;
         if (body is null) return;
 
+        foreach (var table in 收集待排版表格(body, hasCover))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ApplyTable(table, cancellationToken);
+        }
+    }
+
+    // 排版和门禁共用同一处理范围，封面保留的表格不接受正文表格规则检查。
+    internal static IEnumerable<Table> 收集待排版表格(Body body, bool hasCover)
+    {
         var hasDedicatedCoverSection = hasCover && OpenXmlHelper.收集分节(body).Count > 1;
         var sectionIndex = 0;
         foreach (var child in body.Elements())
         {
-            cancellationToken.ThrowIfCancellationRequested();
             if (child is Paragraph p && p.ParagraphProperties?.GetFirstChild<SectionProperties>() is not null)
             {
                 sectionIndex++;
@@ -45,7 +54,7 @@ public sealed class TableService
             if (hasDedicatedCoverSection && sectionIndex == 0) continue;
             // 封面表判定只限第一节：正文/落款附近含"会计师事务所、地址、电话、传真"的信息表不应被误判为封面表而跳过格式化
             if (sectionIndex == 0 && IsCoverTable(table)) continue;
-            ApplyTable(table, cancellationToken);
+            yield return table;
         }
     }
 
@@ -193,7 +202,7 @@ public sealed class TableService
                         p.ParagraphProperties.Justification = new Justification { Val = JustificationValues.Center };
                     }
 
-                    foreach (var run in p.Descendants<Run>())
+                    foreach (var run in OpenXmlHelper.Runs(p))
                     {
                         if (run.Descendants<FootnoteReference>().Any() || run.Descendants<EndnoteReference>().Any())
                         {
@@ -367,6 +376,8 @@ public sealed class TableService
 
     private static bool 单元格可安全重写(TableCell cell)
     {
+        // 不识别的运行块内容可能是负号、符号、图片等，不能只凭 w:t 当成普通金额重写。
+        if (cell.Descendants<Run>().Any(run => run.ChildElements.Any(child => child is not RunProperties and not Text))) return false;
         if (cell.Elements<Paragraph>().Count() != 1) return false;
         if (cell.Descendants<SimpleField>().Any()) return false;
         if (cell.Descendants<FieldCode>().Any()) return false;

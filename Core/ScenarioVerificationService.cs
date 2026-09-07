@@ -91,7 +91,7 @@ public sealed class ScenarioVerificationService
                 VerifyComplexSignoffPitfallMatrix(word, report, context);
                 break;
             case "真实样本":
-                VerifyRealSample(word, report);
+                VerifyRealSample(word, report, context);
                 break;
             default:
                 report.Issues.Add($"未识别的场景：{scenarioKey}");
@@ -281,10 +281,12 @@ public sealed class ScenarioVerificationService
         }
     }
 
-    private static void VerifyRealSample(WordprocessingDocument word, ScenarioVerificationReportContract report)
+    private static void VerifyRealSample(WordprocessingDocument word, ScenarioVerificationReportContract report, FirmDocumentContext context)
     {
-        AssertHeading(word, report, "公司的基本情况", 1, true);
-        AssertHeading(word, report, "（一）基本情况", 2, true);
+        // 真实文件按事务所通用规则验收；固定标题只属于指定的合成矩阵。
+        var validation = new ValidationService().Validate(word, context.HasCover, context.IsPureCoverDocument, throwOnFailure: false);
+        foreach (var issue in validation.Issues) report.Issues.Add($"{issue.Code}：{issue.Message}");
+        report.Facts["真实样本验收口径"] = "通用结构与业务规则，不预设章节名称";
     }
 
     private static void VerifyTextBoxPitfallMatrix(WordprocessingDocument word, ScenarioVerificationReportContract report, FirmDocumentContext context)

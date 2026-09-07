@@ -114,7 +114,7 @@ public sealed class SignoffService
             if (pPr.OutlineLevel != null) pPr.OutlineLevel.Remove();
 
             // 统一落款区字体为中文宋体，英文Times New Roman，并清除杂项污染
-            foreach (var run in p.Descendants<Run>())
+            foreach (var run in OpenXmlHelper.Runs(p))
             {
                 if (run.Descendants<FootnoteReference>().Any() || run.Descendants<EndnoteReference>().Any())
                 {

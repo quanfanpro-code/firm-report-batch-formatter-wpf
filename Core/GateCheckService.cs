@@ -53,6 +53,9 @@ public sealed class GateCheckService
         result.Facts["复杂结构.书签数"] = complex.书签数.ToString();
         result.Facts["复杂结构.超链接数"] = complex.超链接数.ToString();
         result.Facts["复杂结构.域代码数"] = complex.域代码数.ToString();
+        result.Facts["复杂结构.脚注引用数"] = complex.脚注引用数.ToString();
+        result.Facts["复杂结构.尾注引用数"] = complex.尾注引用数.ToString();
+        result.Facts["复杂结构.图形数"] = complex.图形数.ToString();
         result.Facts["复杂结构.落款复杂结构数"] = complex.落款复杂结构数.ToString();
     }
 
@@ -71,6 +74,9 @@ public sealed class GateCheckService
         检查计数("书签", before.书签数, after.书签数);
         检查计数("超链接", before.超链接数, after.超链接数);
         检查计数("域代码", before.域代码数, after.域代码数);
+        检查计数("脚注引用", before.脚注引用数, after.脚注引用数);
+        检查计数("尾注引用", before.尾注引用数, after.尾注引用数);
+        检查计数("图形", before.图形数, after.图形数);
 
         if (before.文本框内容指纹 != after.文本框内容指纹) losses.Add("文本框内容发生变化");
         if (before.脚注尾注内容指纹 != after.脚注尾注内容指纹) losses.Add("脚注或尾注内容发生变化");

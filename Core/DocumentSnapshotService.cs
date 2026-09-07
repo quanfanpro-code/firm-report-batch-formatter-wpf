@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -8,10 +8,6 @@ namespace FirmFormatter.OpenXml.Core;
 
 public sealed class DocumentSnapshotService
 {
-    private static readonly Regex 一级标题文本 = new(@"^[一二三四五六七八九十]+、", RegexOptions.Compiled);
-    private static readonly Regex 二级标题文本 = new(@"^[（(][一二三四五六七八九十]+[)）]", RegexOptions.Compiled);
-    private static readonly Regex 三级标题文本 = new(@"^\d{1,3}．", RegexOptions.Compiled);
-
     public string ExportAsJson(string docxPath)
     {
         using var word = WordprocessingDocument.Open(docxPath, false);
@@ -65,7 +61,7 @@ public sealed class DocumentSnapshotService
         return body.Descendants<Paragraph>()
             .Select(paragraph => new
             {
-                级别 = ResolveHeadingLevelForSnapshot(paragraph),
+                级别 = OpenXmlHelper.ResolveHeadingLevelForValidation(word.MainDocumentPart, paragraph),
                 文本 = NormalizeVisibleText(GetVisibleText(paragraph))
             })
             .Where(item => item.级别 > 0 && !string.IsNullOrWhiteSpace(item.文本))
@@ -86,28 +82,6 @@ public sealed class DocumentSnapshotService
             })
             .Cast<object>()
             .ToList();
-    }
-
-    private static int ResolveHeadingLevelForSnapshot(Paragraph paragraph)
-    {
-        var text = NormalizeVisibleText(GetVisibleText(paragraph));
-        if (text.Length <= 30)
-        {
-            if (一级标题文本.IsMatch(text)) return 1;
-            if (二级标题文本.IsMatch(text)) return 2;
-            if (三级标题文本.IsMatch(text)) return 3;
-        }
-
-        var outline = paragraph.ParagraphProperties?.OutlineLevel?.Val?.Value;
-        if (outline == 0) return 1;
-        if (outline == 1) return 2;
-        if (outline == 2) return 3;
-
-        var styleId = paragraph.ParagraphProperties?.ParagraphStyleId?.Val?.Value?.Trim().ToLowerInvariant();
-        if (styleId is "1" or "heading1" or "标题1" or "h1") return 1;
-        if (styleId is "2" or "heading2" or "标题2" or "h2") return 2;
-        if (styleId is "3" or "heading3" or "标题3" or "h3") return 3;
-        return 0;
     }
 
     private static string GetVisibleText(Paragraph paragraph)

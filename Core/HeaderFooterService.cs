@@ -1,4 +1,4 @@
-using DocumentFormat.OpenXml;
+﻿using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 
@@ -26,6 +26,7 @@ public sealed class HeaderFooterService
         var body = main?.Document?.Body;
         if (main is null || body is null) return;
 
+        EnsureFinalSection(body);
         var sections = OpenXmlHelper.收集分节(body);
         var hasDedicatedCoverSection = hasCover && sections.Count > 1;
         var evenAndOdd = main.DocumentSettingsPart?.Settings?.GetFirstChild<EvenAndOddHeaders>();
@@ -60,10 +61,17 @@ public sealed class HeaderFooterService
         var body = word.MainDocumentPart?.Document?.Body;
         if (body is null) return;
 
+        EnsureFinalSection(body);
         foreach (var sectPr in OpenXmlHelper.收集分节(body))
         {
             EnsurePureCoverMargins(sectPr, _ruleProfile);
         }
+    }
+
+    private static void EnsureFinalSection(Body body)
+    {
+        // 末节属性在输入中可以省略，但输出必须显式写入，才能实际设置纸张和页边距。
+        if (!body.Elements<SectionProperties>().Any()) body.AppendChild(new SectionProperties());
     }
 
     private static void EnsurePageLayout(SectionProperties sectPr, bool isCover, FirmRuleProfile ruleProfile)
@@ -208,11 +216,11 @@ public sealed class HeaderFooterService
             - (pgMar?.Left?.Value ?? (uint)ruleProfile.页边距左Twips)
             - (pgMar?.Right?.Value ?? (uint)ruleProfile.页边距右Twips));
 
-        foreach (var hr in sectPr.Elements<HeaderReference>())
+        foreach (var hr in sectPr.Elements<HeaderReference>().ToList())
         {
             // 死引用（缺关系 Id 或指向不存在的部件）既无内容可排版，又会触发门禁
             // header_ref_missing_id/header_ref_broken 拦截，甚至让 OpenXmlValidator 崩溃，直接清理
-            if (hr.Id?.Value is null)
+            if (string.IsNullOrWhiteSpace(hr.Id?.Value))
             {
                 hr.Remove();
                 continue;
@@ -222,18 +230,47 @@ public sealed class HeaderFooterService
             // 仅容忍关系 ID 无效这一预期异常，其余异常应暴露而不是静默跳过
             try { headerPart = main.GetPartById(hr.Id.Value) as HeaderPart; }
             catch (ArgumentOutOfRangeException) { hr.Remove(); continue; }
-            if (headerPart is null) continue;
+            if (headerPart is null) { hr.Remove(); continue; }
+            // 横竖版不能共用一个绝对定位点；仅在目标宽度不同时拆开页眉并保留全部关系。
+            var landscape = IsLandscapeSection(sectPr.GetFirstChild<PageSize>() ?? new PageSize());
+            if (OpenXmlHelper.收集分节(main.Document?.Body).Any(section =>
+                !ReferenceEquals(section, sectPr)
+                && IsLandscapeSection(section.GetFirstChild<PageSize>() ?? new PageSize()) != landscape
+                && section.Elements<HeaderReference>().Any(reference => reference.Id?.Value == hr.Id.Value)))
+            {
+                var copy = main.AddNewPart<HeaderPart>();
+                copy.Header = headerPart.Header?.CloneNode(true) as Header;
+                foreach (var part in headerPart.Parts) copy.AddPart(part.OpenXmlPart, part.RelationshipId);
+                foreach (var link in headerPart.HyperlinkRelationships) copy.AddHyperlinkRelationship(link.Uri, link.IsExternal, link.Id);
+                foreach (var link in headerPart.ExternalRelationships) copy.AddExternalRelationship(link.RelationshipType, link.Uri, link.Id);
+                foreach (var link in headerPart.DataPartReferenceRelationships)
+                    copy.AddVideoReferenceRelationship((MediaDataPart)link.DataPart, link.Id);
+                hr.Id = main.GetIdOfPart(copy);
+                headerPart = copy;
+            }
             var header = headerPart.Header;
             if (header is null) continue;
 
-            foreach (var p in header.Descendants<Paragraph>())
+            foreach (var p in header.Descendants<Paragraph>().Where(p => !p.Ancestors<TextBoxContent>().Any()))
             {
+                var originalTabs = p.ParagraphProperties?.Tabs?.CloneNode(true) as Tabs;
                 ResetHeaderParagraphProperties(p);
+                // 已有制表符不再清掉定位点，二次排版及共享页眉保持左右对齐。
+                if (p.Descendants<TabChar>().Any())
+                {
+                    p.ParagraphProperties!.Tabs = originalTabs;
+                    foreach (var tab in originalTabs?.Elements<TabStop>() ?? [])
+                        if (tab.Val?.Value == TabStopValues.Right) tab.Position = contentWidthTwips;
+                }
                 规范化页眉内容(p, contentWidthTwips);
 
-                foreach (var run in p.Descendants<Run>())
+                foreach (var run in OpenXmlHelper.Runs(p))
                 {
+                    var vanish = run.RunProperties?.Vanish?.CloneNode(true) as Vanish;
+                    var webHidden = run.RunProperties?.WebHidden?.CloneNode(true) as WebHidden;
                     run.RunProperties = CreateHeaderRunProperties(ruleProfile);
+                    run.RunProperties.Vanish = vanish;
+                    run.RunProperties.WebHidden = webHidden;
                 }
             }
             header.Save();
@@ -247,6 +284,7 @@ public sealed class HeaderFooterService
 
     private static void 规范化页眉内容(Paragraph paragraph, int contentWidthTwips)
     {
+        if (OpenXmlHelper.Runs(paragraph).Any(run => run.ChildElements.Any(child => child is not RunProperties and not Text and not TabChar))) return;
         // 含域、图片、书签、修订等复杂结构的段落不重建，避免破坏内容
         if (paragraph.Descendants().Any(element =>
                 element is Drawing or SimpleField or FieldCode or Hyperlink
@@ -417,7 +455,8 @@ public sealed class HeaderFooterService
         headerReference.Remove();
         if (string.IsNullOrWhiteSpace(relationId)) return;
         if (仍被其他分节引用(main, currentSection, relationId, true)) return;
-        main.DeletePart(relationId);
+        if (main.Parts.Any(part => part.RelationshipId == relationId && part.OpenXmlPart is HeaderPart))
+            main.DeletePart(relationId);
     }
 
     private static void 移除页脚引用(MainDocumentPart main, SectionProperties currentSection, FooterReference footerReference)
@@ -426,7 +465,8 @@ public sealed class HeaderFooterService
         footerReference.Remove();
         if (string.IsNullOrWhiteSpace(relationId)) return;
         if (仍被其他分节引用(main, currentSection, relationId, false)) return;
-        main.DeletePart(relationId);
+        if (main.Parts.Any(part => part.RelationshipId == relationId && part.OpenXmlPart is FooterPart))
+            main.DeletePart(relationId);
     }
 
     private static bool 仍被其他分节引用(MainDocumentPart main, SectionProperties currentSection, string relationId, bool isHeader)

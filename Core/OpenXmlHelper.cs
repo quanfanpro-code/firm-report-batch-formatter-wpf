@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -52,7 +52,12 @@ public static class OpenXmlHelper
         return result.Length == 0 ? string.Empty : result.ToString();
     }
 
-    public static string ParagraphText(Paragraph p) => 提取可见文本(p);
+    public static string ParagraphText(Paragraph p)
+    {
+        var text = new StringBuilder();
+        追加可见文本(p, text, p);
+        return text.ToString();
+    }
 
     public static int 统计正文可见有效文本字数(Body? body)
     {
@@ -316,7 +321,13 @@ public static class OpenXmlHelper
         }
     }
 
-    public static IEnumerable<Run> Runs(Paragraph p) => p.Descendants<Run>();
+    // 只处理本段的运行块，不能从承载图片的外层段落穿透到文本框内部。
+    public static IEnumerable<Run> Runs(Paragraph p) => p.Descendants<Run>()
+        .Where(run => ReferenceEquals(run.Ancestors<Paragraph>().FirstOrDefault(), p));
+
+    internal static bool 是隐藏运行块(Run run) =>
+        (run.RunProperties?.Vanish is { } vanish && (vanish.Val?.Value ?? true))
+        || (run.RunProperties?.WebHidden is { } webHidden && (webHidden.Val?.Value ?? true));
 
     public static bool IsStyleBold(MainDocumentPart? mainPart, StyleValues styleType, string? styleId)
     {
@@ -349,8 +360,9 @@ public static class OpenXmlHelper
         return null;
     }
 
-    private static void 追加可见文本(OpenXmlElement element, StringBuilder sb)
+    private static void 追加可见文本(OpenXmlElement element, StringBuilder sb, Paragraph? owner = null)
     {
+        if (owner != null && element is Paragraph paragraph && !ReferenceEquals(paragraph, owner)) return;
         if (element is Drawing || element.LocalName is "anchor" or "inline")
         {
             return;
@@ -358,8 +370,7 @@ public static class OpenXmlHelper
 
         if (element is Run run)
         {
-            var runProperties = run.RunProperties;
-            if (runProperties?.Vanish != null || runProperties?.WebHidden != null)
+            if (是隐藏运行块(run))
             {
                 return;
             }
@@ -386,7 +397,7 @@ public static class OpenXmlHelper
 
         foreach (var child in element.ChildElements)
         {
-            追加可见文本(child, sb);
+            追加可见文本(child, sb, owner);
         }
     }
 

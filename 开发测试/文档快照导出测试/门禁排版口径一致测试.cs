@@ -1,4 +1,4 @@
-using DocumentFormat.OpenXml;
+﻿using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using FirmFormatter.OpenXml.Contracts;
@@ -37,6 +37,7 @@ public sealed class 门禁排版口径一致测试
             var signoff = new SignoffService().IdentifySignoffParagraphs(word, context.HasCover);
             new ParagraphService().Apply(word, context.HasCover, signoff);
             new TableService().Apply(word, context.HasCover);
+            new SignoffService().Apply(word, signoff);
         }
 
         return new GateCheckService().Run(word, request, context);
