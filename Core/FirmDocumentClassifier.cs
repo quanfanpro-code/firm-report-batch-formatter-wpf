@@ -12,7 +12,7 @@ public sealed class FirmDocumentClassifier
     {
         var body = word.MainDocumentPart?.Document?.Body;
         var visibleTextLength = OpenXmlHelper.统计正文可见有效文本字数(body);
-        var isPureCoverDocument = visibleTextLength < _ruleProfile.纯封面可见字数阈值;
+        var isPureCoverDocument = request.IsPureCoverOverride ?? (visibleTextLength < _ruleProfile.纯封面可见字数阈值);
 
         var hasCover = false;
         if (!isPureCoverDocument)

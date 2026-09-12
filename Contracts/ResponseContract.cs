@@ -6,4 +6,8 @@ public sealed record ResponseContract(
     string? ErrorCode,
     string? Message,
     GateCheckResultContract? GateCheck = null
-);
+)
+{
+    public string? AuditPath { get; init; }
+    public string? AuditWarning { get; init; }
+}

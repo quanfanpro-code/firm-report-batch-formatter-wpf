@@ -65,6 +65,15 @@
                     </StackPanel>
                     <CheckBox x:Name="_includeSubfoldersCheck"
                               Content="批量处理时包含子文件夹" FontSize="12"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <TextBlock Text="处理方式" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                        <ComboBox x:Name="_documentModeBox" SelectedIndex="0" Width="230" AutomationProperties.Name="处理方式">
+                            <ComboBoxItem Content="自动识别"/>
+                            <ComboBoxItem Content="纯封面（只调页边距）"/>
+                            <ComboBoxItem Content="正文（可包含封面）"/>
+                        </ComboBox>
+                    </StackPanel>
+                    <TextBlock Text="短正文被误认作封面时选择“正文”。此选择应用于本次全部文件。" TextWrapping="Wrap" FontSize="12" Margin="0,6,0,0"/>
                 </StackPanel>
             </Border>
             <Grid Grid.Row="1" Margin="0,0,0,16">

@@ -138,13 +138,16 @@ public partial class MainWindow : FluentWindow
         _logDoc.Blocks.Clear();
 
         var includeSubfolders = _includeSubfoldersCheck.IsChecked == true;
+        bool? pureCover = _documentModeBox.SelectedIndex switch { 1 => true, 2 => false, _ => null };
+        _documentModeBox.IsEnabled = false;
         var token = _cts.Token;
         // 保留 Task 引用：便于关窗时等待后台任务结束，也避免未观察异常无声丢失
-        _后台任务 = Task.Run(() => 后台处理(path, includeSubfolders, token));
+        _后台任务 = Task.Run(() => 后台处理(path, includeSubfolders, token, pureCover));
     }
 
-    private void 后台处理(string path, bool includeSubfolders, CancellationToken token)
+    private void 后台处理(string path, bool includeSubfolders, CancellationToken token, bool? pureCover)
     {
+        var batchItems = new List<批次检查项>();
         try
         {
             if (File.Exists(path))
@@ -161,7 +164,7 @@ public partial class MainWindow : FluentWindow
                     return;
                 }
                 Dispatcher.Invoke(() => AppendLog($"开始处理文件：{path}"));
-                var output = 处理单个文件(path, token);
+                var output = 处理单个文件(path, token, pureCover, batchItems);
                 Dispatcher.Invoke(() =>
                 {
                     AppendLog($"输出文件：{output}");
@@ -203,7 +206,7 @@ public partial class MainWindow : FluentWindow
                     var idx = i + 1;
                     try
                     {
-                        var output = 处理单个文件(file, token);
+                        var output = 处理单个文件(file, token, pureCover, batchItems);
                         success++;
                         if (token.IsCancellationRequested) break;
                         Dispatcher.Invoke(() =>
@@ -272,9 +275,22 @@ public partial class MainWindow : FluentWindow
         }
         finally
         {
+            if (Directory.Exists(path) && batchItems.Count > 0)
+            {
+                try
+                {
+                    var audit = 检查记录服务.保存批次(path, batchItems, token.IsCancellationRequested);
+                    Dispatcher.BeginInvoke(() => AppendLog($"批次检查记录：{audit}"));
+                }
+                catch (Exception ex)
+                {
+                    Dispatcher.BeginInvoke(() => AppendLog($"批次检查记录保存失败：{ex.Message}", LogType.Warning));
+                }
+            }
             Dispatcher.Invoke(() =>
             {
                 _处理中 = false;
+                _documentModeBox.IsEnabled = true;
                 // 先原子置 null 再 Dispose，避免与 Start_Click/OnClosing 的 Cancel 形成 ObjectDisposedException 竞态
                 var cts = Interlocked.Exchange(ref _cts, null);
                 cts?.Dispose();
@@ -286,7 +302,7 @@ public partial class MainWindow : FluentWindow
         }
     }
 
-    private string 处理单个文件(string inputPath, CancellationToken token)
+    private string 处理单个文件(string inputPath, CancellationToken token, bool? pureCover, List<批次检查项> batchItems)
     {
         var outputPath = 输出文件命名规则.生成输出路径(inputPath);
 
@@ -295,6 +311,7 @@ public partial class MainWindow : FluentWindow
             InputPath = inputPath,
             OutputPath = outputPath,
             HasCoverOverride = null,
+            IsPureCoverOverride = pureCover,
             ScenarioName = "常规",
             RunSource = "GUI",
             CancellationToken = token
@@ -315,6 +332,11 @@ public partial class MainWindow : FluentWindow
         });
 
         var result = pipeline.Run(request);
+        batchItems.Add(new 批次检查项(inputPath, result));
+        if (result.AuditPath is not null)
+            Dispatcher.BeginInvoke(() => AppendLog($"检查记录：{result.AuditPath}"));
+        if (result.AuditWarning is not null)
+            Dispatcher.BeginInvoke(() => AppendLog(result.AuditWarning, LogType.Warning));
 
         if (result.ErrorCode == "cancelled")
             throw new OperationCanceledException(token);

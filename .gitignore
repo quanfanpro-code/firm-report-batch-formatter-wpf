@@ -8,6 +8,8 @@ artifacts/
 *.docx
 *.snapshot.json
 *.diff.json
+*.audit*.json
+批次检查_*.json
 Validation/
 Core/规划/
 docs/requirements/

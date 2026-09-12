@@ -15,6 +15,24 @@ public sealed class DocumentPipeline
 
     public ResponseContract Run(RequestContract request)
     {
+        var events = new List<LogEventContract>();
+        var result = new DocumentPipeline(evt =>
+        {
+            events.Add(evt);
+            _emit(evt);
+        }).RunCore(request);
+        try
+        {
+            return result with { AuditPath = 检查记录服务.保存单文件(request, result, events) };
+        }
+        catch (Exception ex)
+        {
+            return result with { AuditWarning = $"检查记录保存失败：{ex.Message}" };
+        }
+    }
+
+    private ResponseContract RunCore(RequestContract request)
+    {
         // 入参基本校验：带病请求直接返回含义明确的错误码，不进入流水线
         var 校验错误 = request.校验();
         if (校验错误 is not null)
@@ -36,6 +54,7 @@ public sealed class DocumentPipeline
 
         WordprocessingDocument? word = null;
         string? 临时输出路径 = null;
+        GateCheckResultContract? gateResult = null;
         try
         {
             request.CancellationToken.ThrowIfCancellationRequested();
@@ -61,7 +80,7 @@ public sealed class DocumentPipeline
 
             if (context.IsPureCoverDocument)
             {
-                _emit(new LogEventContract("info", "cover", "pure_cover_detected", $"纯封面文档 (<{FirmRuleProfile.Default.纯封面可见字数阈值}字): {context.VisibleTextLength}字"));
+                _emit(new LogEventContract("info", "cover", "pure_cover_detected", $"按纯封面处理：{context.VisibleTextLength}字；识别方式：{(request.IsPureCoverOverride.HasValue ? "手动选择" : "自动")}"));
 
                 var headerFooter = new HeaderFooterService();
                 headerFooter.ApplyPureCoverLayout(word);
@@ -107,7 +126,7 @@ public sealed class DocumentPipeline
             word.MainDocumentPart?.Document?.Save();
 
             var gateCheck = new GateCheckService();
-            var gateResult = gateCheck.Run(word, request, context);
+            gateResult = gateCheck.Run(word, request, context);
             if (!gateResult.Success)
             {
                 throw new InvalidDataException(BuildGateFailureMessage(gateResult));
@@ -181,7 +200,7 @@ public sealed class DocumentPipeline
                 _ => "openxml_engine_failed"
             };
             try { _emit(new LogEventContract("error", "pipeline", errorCode, ex.Message)); } catch { }
-            return new ResponseContract(false, failureOutputPath, errorCode, ex.Message);
+            return new ResponseContract(false, failureOutputPath, errorCode, ex.Message, gateResult);
         }
     }
 

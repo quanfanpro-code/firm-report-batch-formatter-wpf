@@ -7,6 +7,7 @@ public sealed class RequestContract
     public string InputPath { get; set; } = string.Empty;
     public string OutputPath { get; set; } = string.Empty;
     public bool? HasCoverOverride { get; set; }
+    public bool? IsPureCoverOverride { get; set; }
     public string? ScenarioName { get; set; }
     public string? RunSource { get; set; }
     public bool RequireScenarioVerification { get; set; }
