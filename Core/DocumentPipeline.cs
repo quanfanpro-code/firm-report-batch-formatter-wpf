@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using DocumentFormat.OpenXml.Packaging;
 using FirmFormatter.OpenXml.Contracts;
 
@@ -120,8 +120,9 @@ public sealed class DocumentPipeline
                 _emit(new LogEventContract("info", "signoff", "signoff_done", "已处理落款区"));
             }
 
-            // 保存前按 schema 顺序规范化样式子元素，避免 OpenXmlValidator 误报
+            // 保存前按 schema 顺序规范化样式、run 属性、单元格属性子元素，避免 OpenXmlValidator 误报
             OpenXmlHelper.NormalizeStyleChildOrder(word);
+            OpenXmlHelper.NormalizeRunAndCellPropertiesOrder(word);
             request.CancellationToken.ThrowIfCancellationRequested();
             word.MainDocumentPart?.Document?.Save();
 

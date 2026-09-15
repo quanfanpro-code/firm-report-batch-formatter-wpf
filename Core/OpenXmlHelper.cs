@@ -1,4 +1,4 @@
-﻿using System.Text;
+using System.Text;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -622,6 +622,75 @@ public static class OpenXmlHelper
         {
             ReorderChildren(style, schemaOrder);
         }
+    }
+
+    // 子元素顺序见 ECMA-376 CT_RPr；rPrChange 排在最后
+    private static readonly string[] RunPropertiesSchemaOrder =
+    [
+        "rStyle", "rFonts", "b", "bCs", "i", "iCs", "caps", "smallCaps", "strike", "dstrike",
+        "outline", "shadow", "emboss", "imprint", "noProof", "snapToGrid", "vanish", "webHidden",
+        "color", "spacing", "w", "kern", "position", "sz", "szCs", "highlight", "u", "effect",
+        "bdr", "shd", "fitText", "vertAlign", "rtl", "cs", "em", "lang", "eastAsianLayout",
+        "specVanish", "oMath", "rPrChange"
+    ];
+
+    // 子元素顺序见 ECMA-376 CT_TcPr；tcPrChange 排在最后
+    private static readonly string[] TableCellPropertiesSchemaOrder =
+    [
+        "cnfStyle", "tcW", "gridSpan", "hMerge", "vMerge", "tcBorders", "shd", "noWrap",
+        "tcMar", "textDirection", "tcFitText", "vAlign", "hideMark", "headers",
+        "cellIns", "cellDel", "cellMerge", "tcPrChange"
+    ];
+
+    /// <summary>
+    /// 按 schema 顺序重排正文与页眉页脚中的 run 属性(rPr)、单元格属性(tcPr)子元素，
+    /// 并给缺失 val 的底纹补齐默认值。
+    /// 输入文档常由脚本生成，元素顺序不合规会被 OpenXmlValidator 报为 unexpected child element；
+    /// 重排只调整顺序、补默认属性，元素集合与显示效果均不变。
+    /// </summary>
+    public static void NormalizeRunAndCellPropertiesOrder(WordprocessingDocument word)
+    {
+        var mainPart = word.MainDocumentPart;
+        if (mainPart == null) return;
+
+        var roots = new List<OpenXmlElement>();
+        if (mainPart.Document != null) roots.Add(mainPart.Document);
+        foreach (var headerPart in mainPart.HeaderParts)
+        {
+            if (headerPart.Header != null) roots.Add(headerPart.Header);
+        }
+        foreach (var footerPart in mainPart.FooterParts)
+        {
+            if (footerPart.Footer != null) roots.Add(footerPart.Footer);
+        }
+
+        foreach (var root in roots)
+        {
+            foreach (var runProperties in root.Descendants<RunProperties>())
+            {
+                ReorderChildrenIfAllKnown(runProperties, RunPropertiesSchemaOrder);
+            }
+
+            foreach (var cellProperties in root.Descendants<TableCellProperties>())
+            {
+                ReorderChildrenIfAllKnown(cellProperties, TableCellPropertiesSchemaOrder);
+                foreach (var shading in cellProperties.Elements<Shading>())
+                {
+                    // CT_Shd 的 val 是必需属性，缺失时按“清除图案、纯色填充”补齐
+                    shading.Val ??= ShadingPatternValues.Clear;
+                }
+            }
+        }
+    }
+
+    private static void ReorderChildrenIfAllKnown(OpenXmlElement parent, string[] schemaOrder)
+    {
+        // 出现顺序表之外的子元素时保守跳过，否则会被排到末尾，反而制造新的 schema 违规
+        foreach (var child in parent.ChildElements)
+        {
+            if (!schemaOrder.Contains(child.LocalName, StringComparer.OrdinalIgnoreCase)) return;
+        }
+        ReorderChildren(parent, schemaOrder);
     }
 
     private static void ReorderChildren(OpenXmlElement parent, string[] schemaOrder)
