@@ -27,7 +27,8 @@ public sealed class 大标题行数自适应测试
         var fourth = paragraphs[3];
         Assert.Equal(JustificationValues.Center, fourth.ParagraphProperties!.Justification!.Val!.Value);
         var fourthRun = fourth.Elements<Run>().Single(r => !string.IsNullOrWhiteSpace(r.InnerText));
-        Assert.Equal("32", fourthRun.RunProperties!.FontSize!.Val!.Value);
+        // 大标题字号规格：小二（36 半点），见 docs/reviews/2026-10-20 大标题规格记录
+        Assert.Equal("36", fourthRun.RunProperties!.FontSize!.Val!.Value);
 
         // 第五行是普通正文：标题区必须在第四行后正常结束，不能误吞
         var fifthRun = paragraphs[4].Elements<Run>().First(r => !string.IsNullOrWhiteSpace(r.InnerText));

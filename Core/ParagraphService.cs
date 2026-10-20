@@ -103,7 +103,7 @@ public sealed class ParagraphService
                 if (IsParagraphTitle(word.MainDocumentPart, p))
                 {
                     titleLinesFound++;
-                    FormatAsTitle(p);
+                    FormatAsTitle(word.MainDocumentPart, p);
                     return; // 必须 return，避免应用下方普通的 21 磅行距和首行缩进
                 }
                 else
@@ -526,9 +526,17 @@ public sealed class ParagraphService
         return HeaderOrgKeywords.Any(kw => normalized.Contains(kw) && normalized.Length - kw.Length <= 20);
     }
 
-    private static void FormatAsTitle(Paragraph p)
+    private static void FormatAsTitle(MainDocumentPart? mainPart, Paragraph p)
     {
         var pPr = ResetTitleParagraphProperties(p);
+
+        // 大标题是文档名，不是章节标题：源稿误挂的章节标题样式（含样式链大纲级别）
+        // 会让门禁按一/二/三级标题规格误拦（要求小四加粗、写大纲级别），这里摘掉错误标签。
+        // IsParagraphTitle 已排除按编号/文本识别的标题，残留层级只可能来自样式挂靠。
+        if (OpenXmlHelper.ResolveHeadingLevelForValidation(mainPart, p) != 0)
+        {
+            pPr.RemoveAllChildren<ParagraphStyleId>();
+        }
 
         pPr.SpacingBetweenLines = new SpacingBetweenLines
         {
@@ -547,7 +555,7 @@ public sealed class ParagraphService
 
         foreach (var run in OpenXmlHelper.Runs(p))
         {
-            ApplyTitleRunProperties(run, "32", true);
+            ApplyTitleRunProperties(run, "36", true);
         }
     }
 
